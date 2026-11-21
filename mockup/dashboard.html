@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E-Paper-Dashboard Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" rel="stylesheet">
+<style>
+  :root { --ink: #000; --paper: #fff; --bg: #e9e7e2; --fg: #222; --muted: #666; --frame: #cfccc4; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #1d1d1f; --fg: #eee; --muted: #aaa; --frame: #3a3a3d; }
+  }
+  :root[data-theme="dark"] { --bg: #1d1d1f; --fg: #eee; --muted: #aaa; --frame: #3a3a3d; }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-wrap: wrap; gap: 32px; justify-content: center; }
+  .controls { flex: 1 1 300px; max-width: 380px; }
+  .controls h1 { font-size: 20px; margin: 0 0 6px; }
+  .controls p { color: var(--muted); font-size: 14px; line-height: 1.45; margin: 0 0 16px; }
+  .scen { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+  .scen button { text-align: left; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--frame); background: transparent; color: var(--fg); font: inherit; font-size: 14px; cursor: pointer; }
+  .scen button[aria-pressed="true"] { border-color: var(--fg); font-weight: 600; }
+  .scen small { display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
+  .zoomrow { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--muted); }
+  .zoomrow button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--frame); background: transparent; color: var(--fg); cursor: pointer; }
+  .zoomrow button[aria-pressed="true"] { border-color: var(--fg); font-weight: 600; }
+  .src { margin-top: 20px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .src code { font-size: 11px; }
+
+  /* Gehäuse + Display (300 x 400 px, 1 bit) */
+  .bezel { padding: 22px; background: #f4f4f2; border-radius: 10px; box-shadow: 0 2px 14px rgba(0,0,0,.18); }
+  .scaler { width: calc(300px * var(--z)); height: calc(400px * var(--z)); }
+  .epd {
+    --z: 2;
+    width: 300px; height: 400px; background: var(--paper); color: var(--ink);
+    transform: scale(var(--z)); transform-origin: 0 0; position: relative; overflow: hidden;
+    font-family: Roboto, sans-serif; -webkit-font-smoothing: none; font-smooth: never;
+  }
+  .epd .mdi::before { line-height: 1; }
+  .abs { position: absolute; }
+
+  /* Bausteine */
+  .hdr { left: 0; top: 0; width: 300px; height: 28px; background: var(--ink); color: var(--paper); display: flex; align-items: center; justify-content: space-between; padding: 0 7px; font-size: 15px; font-weight: 700; }
+  .hdr .t { font-weight: 400; font-size: 15px; }
+  .sec { left: 6px; width: 288px; display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+  .sec .mdi { font-size: 14px; }
+  .sec .r { margin-left: auto; letter-spacing: 0; text-transform: none; font-weight: 400; }
+  .rule { left: 4px; width: 292px; height: 1px; background: var(--ink); }
+
+  .chips { left: 4px; width: 292px; display: grid; grid-template-columns: 1fr 1fr; gap: 3px 4px; }
+  .chip { height: 22px; display: flex; align-items: center; gap: 4px; padding: 0 5px; font-size: 13px; white-space: nowrap; overflow: hidden; border: 1px solid var(--ink); }
+  .chip.on { background: var(--ink); color: var(--paper); }
+  .chip .mdi { font-size: 16px; }
+  .chip .s { margin-left: auto; font-size: 11px; }
+  .allok { left: 6px; display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 700; }
+  .allok .mdi { font-size: 30px; }
+
+  .cell { height: 42px; display: flex; align-items: center; gap: 6px; padding: 0 6px; border: 1px solid var(--ink); }
+  .cell.on { background: var(--ink); color: var(--paper); }
+  .cell .mdi { font-size: 26px; }
+  .cell .l { font-size: 11px; line-height: 13px; }
+  .cell .v { font-size: 15px; font-weight: 700; line-height: 17px; white-space: nowrap; }
+
+  .big { font-weight: 700; line-height: 1; }
+  .small { font-size: 12px; }
+  .bar { height: 12px; border: 1px solid var(--ink); position: relative; }
+  .bar .f { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); }
+  .bar .tick { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); }
+  .bar .rest { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 3px); }
+</style>
+</head>
+<body>
+<main>
+  <section class="controls">
+    <h1>E-Paper-Dashboard: Seite „Übersicht“</h1>
+    <p>Mockup im Maßstab des Displays: 300 × 400 px hochkant, nur Schwarz und Weiß. Wähle ein Szenario, um zu sehen, wie sich die Anzeige verändert. Die Werte im Szenario „Jetzt“ stammen aus deinem Home Assistant (21.11.2026, ca. 18 Uhr).</p>
+    <div class="scen" id="scen"></div>
+    <div class="zoomrow">Zoom
+      <button data-z="1">1×</button><button data-z="2" aria-pressed="true">2×</button><button data-z="3">3×</button>
+    </div>
+    <div class="src">
+      <strong>Datenquellen</strong><br>
+      Fenster/Türen: 12 HmIP-Kontakte, Balkontür mit Griffsensor (gekippt)<br>
+      Garage: <code>cover.garage_garagentor_tor</code><br>
+      Auto: <code>binary_sensor.skoda_enyaq_turen_offen</code>, <code>…_fenster</code>, <code>…_kofferraum</code>, <code>…_motorhaube</code><br>
+      Laden: <code>sensor.skoda_enyaq_batteriestand</code>, <code>…_reichweite</code>, <code>…_ladegrenze_in_prozent</code>, <code>…_ladekabel</code>, <code>…_ladestatus</code>, <code>…_ladeleistung</code>, <code>sensor.openwb_lademodus</code><br>
+      PV: <code>sensor.solaredge_ac_power</code>, <code>sensor.solaredge_pv_dc_ertrag_heute</code>, Forecast.Solar (2 Dachflächen, summiert): <code>sensor.energy_production_today_remaining</code> + <code>_2</code>, <code>…_tomorrow</code> + <code>_2</code>
+    </div>
+  </section>
+
+  <div class="bezel"><div class="scaler" id="scaler"><div class="epd" id="epd"></div></div></div>
+</main>
+
+<script>
+const SCENARIOS = [
+  { id: 'now', label: 'Jetzt (echte Werte)', note: 'Abends: alles zu, Auto angesteckt, lädt nicht, PV aus',
+    time: '18:04', date: 'Sa 21.11.',
+    openings: [], garage: 'zu', car: { doors: false, windows: false, trunk: false, hood: false },
+    ev: { soc: 48, range: 200, limit: 80, plugged: true, charging: false, power: 0, mode: 'Nur PV' },
+    pv: { now: 0, today: 6.5, rest: 0, tomorrow: 6.0, night: true } },
+  { id: 'day', label: 'Sonniger Tag, alles in Ordnung', note: 'Auto lädt mit PV-Überschuss',
+    time: '12:30', date: 'So 22.11.',
+    openings: [], garage: 'zu', car: { doors: false, windows: false, trunk: false, hood: false },
+    ev: { soc: 63, range: 262, limit: 80, plugged: true, charging: true, power: 3.7, mode: 'PV-Überschuss' },
+    pv: { now: 4.2, today: 5.8, rest: 3.6, tomorrow: 7.1, night: false } },
+  { id: 'open', label: 'Einiges offen / unklar', note: 'Fenster offen, Balkontür gekippt, ein Sensor nicht erreichbar, Garage auf',
+    time: '15:10', date: 'Mo 23.11.',
+    openings: [
+      { name: 'Wohnzimmer', state: 'offen', door: false },
+      { name: 'Balkontür', state: 'gekippt', door: true },
+      { name: 'Haustür', state: 'offen', door: true },
+      { name: 'Korbinian', state: '?', door: false },
+    ],
+    garage: 'offen', car: { doors: false, windows: true, trunk: false, hood: false },
+    ev: { soc: 31, range: 128, limit: 80, plugged: false, charging: false, power: 0, mode: 'Nur PV' },
+    pv: { now: 0.8, today: 3.1, rest: 0.4, tomorrow: 2.2, night: false } },
+  { id: 'many', label: 'Viele Fenster offen (Lüften)', note: 'Mehr als 6 Einträge: Überlauf „+n weitere“',
+    time: '08:15', date: 'Di 24.11.',
+    openings: [
+      { name: 'Wohnzimmer', state: 'offen' }, { name: 'Küche', state: 'offen' }, { name: 'Bad OG', state: 'offen' },
+      { name: 'Korbinian', state: 'offen' }, { name: 'Tobias', state: 'offen' }, { name: 'SZ Velux', state: 'offen' },
+      { name: 'SZ Mitte', state: 'offen' }, { name: 'Bad DG', state: 'offen' },
+    ],
+    garage: 'zu', car: { doors: true, windows: false, trunk: true, hood: false },
+    ev: { soc: 80, range: 330, limit: 80, plugged: true, charging: false, power: 0, mode: 'Standby' },
+    pv: { now: 1.1, today: 0.4, rest: 5.9, tomorrow: 6.3, night: false } },
+];
+
+const fmt = (v, d = 1) => v.toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d });
+const kw = w => w < 1 ? `${Math.round(w * 1000)} W` : `${fmt(w)} kW`;
+
+function render(s) {
+  const el = (cls, style, html) => `<div class="abs ${cls}" style="${style}">${html}</div>`;
+  let h = '';
+
+  // Kopfzeile
+  h += el('hdr', '', `<span>${s.date}</span><span class="t">${s.time}</span>`);
+
+  // Fenster & Türen  (y 32 … 126)
+  const nOpen = s.openings.filter(o => o.state !== '?').length;
+  const nUnk = s.openings.length - nOpen;
+  const right = s.openings.length ? `${nOpen ? nOpen + ' offen' : ''}${nOpen && nUnk ? ' · ' : ''}${nUnk ? nUnk + ' unklar' : ''}` : '';
+  h += el('sec', 'top:33px', `<i class="mdi mdi-window-closed-variant"></i>Fenster &amp; Türen<span class="r">${right}</span>`);
+  if (!s.openings.length) {
+    h += el('allok', 'top:62px', `<i class="mdi mdi-check-circle"></i>Alles geschlossen`);
+  } else {
+    const max = 6, list = s.openings.length > max ? s.openings.slice(0, max - 1) : s.openings;
+    let chips = list.map(o => {
+      const unk = o.state === '?';
+      const icon = unk ? 'mdi-help-circle-outline' : o.door ? 'mdi-door-open' : 'mdi-window-open-variant';
+      return `<div class="chip ${unk ? '' : 'on'}"><i class="mdi ${icon}"></i>${o.name}<span class="s">${unk ? 'unklar' : o.state === 'gekippt' ? 'gekippt' : ''}</span></div>`;
+    }).join('');
+    if (s.openings.length > max) chips += `<div class="chip"><span>+${s.openings.length - list.length} weitere</span></div>`;
+    h += el('chips', 'top:51px', chips);
+  }
+  h += el('rule', 'top:128px', '');
+
+  // Garage & Auto (y 132 … 176)
+  const carIssues = [s.car.doors && 'Tür', s.car.windows && 'Fenster', s.car.trunk && 'Kofferraum', s.car.hood && 'Haube'].filter(Boolean);
+  const gOpen = s.garage !== 'zu';
+  h += el(`cell ${gOpen ? 'on' : ''}`, 'top:133px; left:4px; width:144px',
+    `<i class="mdi ${gOpen ? 'mdi-garage-open-variant' : 'mdi-garage-variant'}"></i><div><div class="l">Garage</div><div class="v">${gOpen ? 'OFFEN' : 'zu'}</div></div>`);
+  h += el(`cell ${carIssues.length ? 'on' : ''}`, 'top:133px; left:152px; width:144px',
+    `<i class="mdi ${carIssues.length ? 'mdi-car-door' : 'mdi-car'}"></i><div><div class="l">Auto</div><div class="v">${carIssues.length ? carIssues.join(', ') + ' offen' : 'alles zu'}</div></div>`);
+  h += el('rule', 'top:181px', '');
+
+  // Auto laden (y 185 … 276)
+  const e = s.ev;
+  h += el('sec', 'top:186px', `<i class="mdi mdi-car-electric"></i>Auto<span class="r">${e.range} km</span>`);
+  h += el('big', 'top:206px; left:6px; font-size:40px', `${e.soc}<span style="font-size:22px"> %</span>`);
+  h += el('bar', `top:254px; left:6px; width:128px`, `<div class="f" style="width:${e.soc}%"></div><div class="tick" style="left:${e.limit}%"></div>`);
+  h += el('small', 'top:268px; left:6px; font-size:10px', `Ladelimit ${e.limit} %`);
+  let evRight;
+  if (!e.plugged) {
+    evRight = `<i class="mdi mdi-power-plug-off-outline" style="font-size:26px"></i><div style="font-size:14px; margin-top:4px">nicht<br>angesteckt</div>`;
+  } else {
+    evRight = `<div style="display:flex; align-items:center; gap:4px"><i class="mdi mdi-ev-plug-type2" style="font-size:24px"></i><span style="font-size:16px; font-weight:700">${e.mode}</span></div>`
+            + `<div style="font-size:14px; margin-top:6px">${e.charging ? `<i class="mdi mdi-flash"></i> lädt ${kw(e.power)}` : 'angesteckt,<br>lädt nicht'}</div>`;
+  }
+  h += el('', 'top:208px; left:152px; width:144px', evRight);
+  h += el('rule', 'top:284px', '');
+
+  // PV (y 288 … 396)
+  const p = s.pv;
+  h += el('sec', 'top:289px', `<i class="mdi mdi-solar-power-variant"></i>PV<span class="r">heute ${fmt(p.today)} kWh</span>`);
+  h += el('big', 'top:309px; left:6px; font-size:34px', p.now < 1 ? `${Math.round(p.now * 1000)}<span style="font-size:18px"> W</span>` : `${fmt(p.now)}<span style="font-size:18px"> kW</span>`);
+  h += el('small', 'top:345px; left:6px', 'aktuell');
+  if (p.night) {
+    h += el('', 'top:309px; left:152px; width:144px',
+      `<div class="small">Prognose morgen</div><div style="font-size:22px; font-weight:700; margin-top:2px"><i class="mdi mdi-weather-sunset-up"></i> ${fmt(p.tomorrow)} kWh</div>`);
+  } else {
+    h += el('', 'top:309px; left:152px; width:144px',
+      `<div class="small">noch erwartet heute</div><div style="font-size:22px; font-weight:700; margin-top:2px">≈ ${fmt(p.rest)} kWh</div>`);
+  }
+  const total = p.today + (p.night ? 0 : p.rest);
+  const fDone = total ? p.today / total * 100 : 0;
+  h += el('bar', 'top:368px; left:6px; width:288px',
+    `<div class="f" style="width:${fDone}%"></div><div class="rest" style="left:${fDone}%; width:${100 - fDone}%"></div>`);
+  h += el('small', 'top:383px; left:6px; width:288px; display:flex; justify-content:space-between; font-size:10px',
+    `<span>erzeugt ${fmt(p.today)} kWh</span><span>${p.night ? 'Tag beendet' : `Tagesprognose ≈ ${fmt(total)} kWh`}</span>`);
+
+  document.getElementById('epd').innerHTML = h;
+}
+
+// Szenario-Auswahl
+const box = document.getElementById('scen');
+SCENARIOS.forEach((s, i) => {
+  const b = document.createElement('button');
+  b.innerHTML = `${s.label}<small>${s.note}</small>`;
+  b.setAttribute('aria-pressed', i === 0);
+  b.onclick = () => { [...box.children].forEach(c => c.setAttribute('aria-pressed', c === b)); render(s); };
+  box.appendChild(b);
+});
+render(SCENARIOS[0]);
+
+// Zoom
+const epd = document.getElementById('epd'), scaler = document.getElementById('scaler');
+function setZoom(z) { epd.style.setProperty('--z', z); scaler.style.setProperty('--z', z); }
+document.querySelectorAll('.zoomrow button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.zoomrow button').forEach(x => x.setAttribute('aria-pressed', x === b));
+  setZoom(+b.dataset.z);
+});
+setZoom(2);
+</script>
+</body>
+</html>
