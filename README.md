@@ -26,9 +26,8 @@ E-Paper-Dashboard für Home Assistant auf Basis von ESPHome. Die Hardware stammt
   - Auto: Ladestand, Reichweite, Ladelimit, Lademodus (openWB), Ladeleistung
   - PV: aktuelle Leistung, Ertrag heute, Restprognose (Forecast.Solar, 2 Flächen) bzw. Prognose morgen
 - `mockup/dashboard.html`: HTML-Skizze der Übersichtsseite
-- `fonts/DejaVuSans.ttf`: Normalschrift (rastert bei 1 Bit sauberer als Roboto); Lizenz in `fonts/LICENSE-DejaVu.txt`
 
-Für das ESPHome-Dashboard müssen `haus_display.h` und der Ordner `fonts/` neben der YAML liegen.
+Für das ESPHome-Dashboard muss `haus_display.h` neben der YAML liegen. Schrift: Arimo (Google Fonts), normal und fett.
 
 Sicherheitsrelevante Zustände (Fenster, Türen, Garage, Auto, Waschmaschinenstatus) aktualisieren das Display sofort.
 Langsam veränderliche Werte (PV, Akkustand, Restlaufzeit …) werden alle 5 Minuten geprüft und lösen nur dann einen

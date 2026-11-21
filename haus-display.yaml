@@ -407,20 +407,20 @@ interval:
 # Fonts
 # ---------------------------------------------------------------------------
 font:
-  # Normalschrift: DejaVu Sans – stark gehintet, bleibt bei 10–15 px und 1 Bit sauber lesbar
-  # (Roboto 400 verliert dort Details, z. B. "a" wird zu "e"). Fett: Roboto 700 (DejaVu Bold zerfällt bei 15/16 px).
-  - {file: "gfonts://Roboto@700", id: f_15b, size: 15, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "fonts/DejaVuSans.ttf", id: f_15, size: 15, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "gfonts://Roboto@700", id: f_sec, size: 11, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "fonts/DejaVuSans.ttf", id: f_14, size: 14, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "fonts/DejaVuSans.ttf", id: f_13, size: 13, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "fonts/DejaVuSans.ttf", id: f_12, size: 12, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "fonts/DejaVuSans.ttf", id: f_11, size: 11, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "fonts/DejaVuSans.ttf", id: f_10, size: 10, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "gfonts://Roboto@700", id: f_16b, size: 16, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "gfonts://Roboto@700", id: f_20b, size: 20, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "gfonts://Roboto@700", id: f_22b, size: 22, glyphs: "0123456789,. –-ackWh"}
-  - {file: "gfonts://Roboto@700", id: f_big, size: 36, glyphs: "0123456789,–-"}
+  # Arimo (metrisch kompatibel zu Arial): rastert bei 1 Bit auch in 10–12 px sauber (Arial-Hinting),
+  # normal und fett aus einer Familie (verglichen mit Roboto, DejaVu, Noto, Open Sans, PT Sans, Fira, IBM Plex).
+  - {file: "gfonts://Arimo@700", id: f_15b, size: 15, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Arimo@400", id: f_15, size: 15, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Arimo@700", id: f_sec, size: 12, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Arimo@400", id: f_14, size: 14, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Arimo@400", id: f_13, size: 13, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Arimo@400", id: f_12, size: 12, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Arimo@400", id: f_11, size: 11, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Arimo@400", id: f_10, size: 10, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Arimo@700", id: f_16b, size: 16, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Arimo@700", id: f_20b, size: 20, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Arimo@700", id: f_22b, size: 22, glyphs: "0123456789,. –-ackWh"}
+  - {file: "gfonts://Arimo@700", id: f_big, size: 36, glyphs: "0123456789,–-"}
   - file: &mdi "https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf"
     id: f_icon_s
     size: 14
