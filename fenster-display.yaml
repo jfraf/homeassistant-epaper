@@ -324,13 +324,17 @@ binary_sensor:
     filters: [delayed_on: 20ms]
     on_press: [component.update: epd]
 
-  # Pin-Finder für den 4. Taster ("Alle"): drücken und im Log schauen, welcher GPIO meldet.
-  # Danach diesen Block entfernen und den Taster wie oben eintragen.
   - platform: gpio
-    id: probe_15
-    internal: true
-    pin: {number: GPIO15, mode: {input: true, pulldown: true}, ignore_strapping_warning: true}
-    on_press: [logger.log: "4. Taster an GPIO15"]
+    id: btn_4
+    name: Taste Alle
+    pin:
+      number: GPIO15
+      mode: {input: true, pulldown: true}
+      ignore_strapping_warning: true # Strapping-Pin, im Betrieb unkritisch
+    filters: [delayed_on: 20ms]
+    on_press: [component.update: epd]
+
+  # Pin-Finder (vorübergehend, bis "Verpasst/AB" geklärt ist): meldet Tastendrücke an freien GPIOs im Log.
   - platform: gpio
     id: probe_25
     internal: true

@@ -15,7 +15,7 @@ E-Paper-Dashboard für Home Assistant auf Basis von ESPHome. Die Hardware stammt
 | Taster „Angenommen“ | 12 (Strapping-Pin, beim Booten nicht drücken) |
 | Taster „Abgehend“ | 13 |
 | Taster „Verpasst/AB“ | 14 |
-| Taster „Alle“ | unbekannt (Pin-Finder in der Konfiguration) |
+| Taster „Alle“ | 15 (Strapping-Pin) |
 
 ## Konfigurationen
 
