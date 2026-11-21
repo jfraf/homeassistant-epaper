@@ -57,7 +57,7 @@ display:
     dc_pin: GPIO17
     reset_pin: GPIO16
     busy_pin: GPIO4
-    rotation: 0
+    rotation: 270 # Display hängt hochkant
     update_interval: never # nur bei Zustandsänderung neu zeichnen (siehe script.refresh)
     lambda: |-
       // ---- Zustände einsammeln: 0 = zu, 1 = offen, 2 = gekippt, -1 = unbekannt
@@ -101,62 +101,68 @@ display:
       };
       count(eg, 4); count(og, 5); count(dg, 3);
 
+      // ---- Layout: Hochformat 300 x 400 (Display hängt hochkant, rotation: 270)
+      const int W = 300;
+
       // ---- Kopfzeile
-      it.filled_rectangle(0, 0, 400, 34);
-      it.print(8, 17, id(f_title), COLOR_OFF, TextAlign::CENTER_LEFT, "Fenster & Türen");
+      it.filled_rectangle(0, 0, W, 32);
+      it.print(8, 16, id(f_title), COLOR_OFF, TextAlign::CENTER_LEFT, "Fenster & Türen");
       if (!id(ha_status).state) {
-        it.print(392, 17, id(f_name), COLOR_OFF, TextAlign::CENTER_RIGHT, "keine Verbindung");
+        it.print(W - 6, 16, id(f_small), COLOR_OFF, TextAlign::CENTER_RIGHT, "keine Verbindung");
       } else {
         auto now = id(ha_time).now();
         if (now.is_valid())
-          it.strftime(392, 17, id(f_name), COLOR_OFF, TextAlign::CENTER_RIGHT, "Stand %H:%M", now);
+          it.strftime(W - 6, 16, id(f_name), COLOR_OFF, TextAlign::CENTER_RIGHT, "%H:%M", now);
       }
 
       // ---- Zusammenfassung
       if (n_open == 0 && n_unknown == 0) {
-        it.print(10, 58, id(f_icon_l), TextAlign::CENTER_LEFT, "\U000F05E0");  // check-circle
-        it.print(52, 58, id(f_big), TextAlign::CENTER_LEFT, "Alles geschlossen");
+        it.print(8, 53, id(f_icon_l), TextAlign::CENTER_LEFT, "\U000F05E0");  // check-circle
+        it.print(50, 53, id(f_big), TextAlign::CENTER_LEFT, "Alles geschlossen");
       } else if (n_open == 0) {
-        it.print(10, 58, id(f_icon_l), TextAlign::CENTER_LEFT, "\U000F0028");  // alert-circle
-        it.printf(52, 58, id(f_big), TextAlign::CENTER_LEFT, "%d unbekannt", n_unknown);
+        it.print(8, 53, id(f_icon_l), TextAlign::CENTER_LEFT, "\U000F0028");  // alert-circle
+        it.printf(50, 53, id(f_big), TextAlign::CENTER_LEFT, "%d unbekannt", n_unknown);
       } else {
-        it.print(10, 58, id(f_icon_l), TextAlign::CENTER_LEFT, "\U000F0026");  // alert
-        it.printf(52, 58, id(f_big), TextAlign::CENTER_LEFT, "%d offen", n_open);
+        it.print(8, 53, id(f_icon_l), TextAlign::CENTER_LEFT, "\U000F0026");  // alert
+        it.printf(50, 53, id(f_big), TextAlign::CENTER_LEFT, "%d offen", n_open);
         if (n_unknown > 0)
-          it.printf(392, 58, id(f_name), TextAlign::CENTER_RIGHT, "%d unbekannt", n_unknown);
+          it.printf(W - 6, 53, id(f_name), TextAlign::CENTER_RIGHT, "%d unbekannt", n_unknown);
       }
 
-      // ---- Spalten je Stockwerk
-      auto draw_col = [&](int x, const char *floor, const Item *items, int n) {
-        it.print(x + 6, 96, id(f_floor), TextAlign::CENTER_LEFT, floor);
-        it.horizontal_line(x + 4, 108, 126);
+      // ---- Abschnitte je Stockwerk, darin 2 Spalten
+      const int ROW = 33, BOX_W = 144, BOX_H = 30;
+      int y0 = 76;
+      auto draw_floor = [&](const char *floor, const Item *items, int n) {
+        it.print(6, y0 + 9, id(f_floor), TextAlign::CENTER_LEFT, floor);
+        it.horizontal_line(4, y0 + 20, W - 8);
+        int top = y0 + 22;
         for (int i = 0; i < n; i++) {
           const Item &e = items[i];
-          int y = 113 + i * 37;          // Zeile: 34 px hoch
+          int x = 4 + (i % 2) * (BOX_W + 4);
+          int y = top + (i / 2) * ROW;
           Color fg = COLOR_ON;
           if (e.state > 0) {             // offen/gekippt: invertiert hervorheben
-            it.filled_rectangle(x + 3, y, 128, 34);
+            it.filled_rectangle(x, y, BOX_W, BOX_H);
             fg = COLOR_OFF;
           } else if (e.state < 0) {      // unbekannt: Rahmen
-            it.rectangle(x + 3, y, 128, 34);
+            it.rectangle(x, y, BOX_W, BOX_H);
           }
           const char *icon = e.door ? (e.state > 0 ? "\U000F081C" : "\U000F081B")   // door-open / door-closed
                                     : (e.state > 0 ? "\U000F11DC" : "\U000F11DB");  // window-open/closed-variant
-          it.print(x + 7, y + 17, id(f_icon), fg, TextAlign::CENTER_LEFT, icon);
+          it.print(x + 4, y + BOX_H / 2, id(f_icon), fg, TextAlign::CENTER_LEFT, icon);
           if (e.state == 0) {
-            it.print(x + 38, y + 17, id(f_name), fg, TextAlign::CENTER_LEFT, e.name);
+            it.print(x + 36, y + BOX_H / 2, id(f_name), fg, TextAlign::CENTER_LEFT, e.name);
           } else {
             const char *sub = e.state == 1 ? "offen" : e.state == 2 ? "gekippt" : "unbekannt";
-            it.print(x + 38, y + 11, id(f_name), fg, TextAlign::CENTER_LEFT, e.name);
-            it.print(x + 38, y + 26, id(f_small), fg, TextAlign::CENTER_LEFT, sub);
+            it.print(x + 36, y + 9, id(f_name), fg, TextAlign::CENTER_LEFT, e.name);
+            it.print(x + 36, y + 23, id(f_small), fg, TextAlign::CENTER_LEFT, sub);
           }
         }
+        y0 = top + ((n + 1) / 2) * ROW + 4;
       };
-      draw_col(0,   "EG", eg, 4);
-      draw_col(133, "OG", og, 5);
-      draw_col(266, "DG", dg, 3);
-      it.vertical_line(133, 88, 208);
-      it.vertical_line(266, 88, 208);
+      draw_floor("EG", eg, 4);
+      draw_floor("OG", og, 5);
+      draw_floor("DG", dg, 3);
 
 script:
   # Entprellt Zustandsänderungen: mehrere Änderungen kurz hintereinander -> ein Refresh
