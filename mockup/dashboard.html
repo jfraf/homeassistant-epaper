@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" rel="stylesheet">
 <style>
+  @font-face { font-family: "DejaVu Sans"; font-weight: 400; src: url("https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans.ttf") format("truetype"); }
   :root { --ink: #000; --paper: #fff; --bg: #e9e7e2; --fg: #222; --muted: #666; --frame: #cfccc4; }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) { --bg: #1d1d1f; --fg: #eee; --muted: #aaa; --frame: #3a3a3d; }
@@ -151,7 +152,7 @@ function tx(x, y, content, { size = 12, bold = false, align = 'TL', inv = false,
   else if (v === 'B') top = y - size;
   else if (v === 'Base') top = y - 0.84 * size;
   const pos = hz === 'R' ? `right:${W - x}px` : `left:${x}px`;
-  const style = `top:${top}px; ${pos}; font-size:${size}px; line-height:1; white-space:nowrap; font-weight:${bold ? 700 : 400}; ${inv ? 'color:var(--paper);' : ''} ${tr ? `transform:${tr};` : ''}`;
+  const style = `top:${top}px; ${pos}; font-size:${size}px; line-height:1; white-space:nowrap; font-weight:${bold ? 700 : 400}; font-family:${bold ? 'Roboto' : '"DejaVu Sans"'}, sans-serif; ${inv ? 'color:var(--paper);' : ''} ${tr ? `transform:${tr};` : ''}`;
   return `<div class="abs" style="${style}">${icon ? `<i class="mdi mdi-${content}"></i>` : content}</div>`;
 }
 const box_ = (x, y, w, h, filled) => `<div class="abs" style="left:${x}px; top:${y}px; width:${w}px; height:${h}px; ${filled ? 'background:var(--ink);' : 'border:1px solid var(--ink);'}"></div>`;
@@ -204,14 +205,17 @@ function render(s) {
   const gOpen = s.garage !== 'zu';
   h += cell(4, gy, 144, 42, gOpen, gOpen ? 'garage-open-variant' : 'garage-variant', 'Garage', gOpen ? 'OFFEN' : 'zu');
   const issues = [s.car.doors && 'Tür', s.car.windows && 'Fenster', s.car.trunk && 'Klappe', s.car.hood && 'Haube'].filter(Boolean);
-  h += cell(152, gy, 144, 42, issues.length > 0, issues.length ? 'car-door' : 'car', 'Auto', issues.length ? issues.join(', ') + ' offen' : 'alles zu');
+  let carLabel = 'Auto', carValue = 'alles zu';
+  if (issues.length === 1) carValue = `${issues[0]} offen`;
+  else if (issues.length > 1) { carValue = `${issues.length} offen`; if (issues.join(', ').length <= 18) carLabel = issues.join(', '); }
+  h += cell(152, gy, 144, 42, issues.length > 0, issues.length ? 'car-door' : 'car', carLabel, carValue);
 
   // Waschmaschine (nur wenn erreichbar)
   if (wm) {
     const y = gy + 44, hh = 40, alert = ['Finished', 'ActionRequired', 'Error'].includes(wm.op);
     let l1 = 'Waschmaschine', l2 = 'bereit', r = '';
     if (wm.op === 'Run') { l1 += ` · ${wm.progress} %`; l2 = wm.program; r = `noch ${wm.remaining} h`; }
-    else if (wm.op === 'DelayedStart') { l1 += ' · Startvorwahl'; l2 = wm.program; r = `fertig in ${wm.finish} h`; }
+    else if (wm.op === 'DelayedStart') { l1 = 'Startvorwahl'; l2 = wm.program; r = `fertig in ${wm.finish} h`; }
     else if (wm.op === 'Pause') { l2 = `${wm.program} (Pause)`; }
     else if (wm.op === 'Finished') { l2 = 'fertig – ausräumen!'; }
     h += box_(4, y, 292, hh, alert);
@@ -224,7 +228,8 @@ function render(s) {
   // Auto (Laden)
   const e = s.ev;
   h += hline(195);
-  h += section(199, 'car-electric', 'AUTO', `${e.range} km`);
+  h += section(199, 'car-electric', 'AUTO', '');
+  h += tx(134, 247, `${e.range} km`, { size: 11, align: 'BaseR' });
   h += tx(6, 247, `${e.soc}<span style="font-size:20px; margin-left:3px">%</span>`, { size: 36, bold: true, align: 'BaseL' });
   h += `<div class="abs bar" style="left:6px; top:253px; width:128px"><div class="f" style="width:${e.soc}%"></div><div class="tick" style="left:${e.limit}%"></div></div>`;
   h += tx(6, 268, `Ladelimit ${e.limit} %`, { size: 10 });
@@ -233,7 +238,7 @@ function render(s) {
     h += tx(184, 222, 'nicht', { size: 14, align: 'CL' }) + tx(184, 239, 'angesteckt', { size: 14, align: 'CL' });
   } else {
     h += tx(152, 228, 'ev-plug-type2', { size: 26, align: 'CL', icon: true });
-    h += tx(184, 228, e.mode, { size: 16, bold: true, align: 'CL' });
+    h += tx(184, 228, e.mode, { size: 15, bold: true, align: 'CL' });
     if (e.charging) {
       h += tx(152, 256, 'flash', { size: 16, align: 'CL', icon: true }) + tx(170, 256, `lädt ${fmt(e.power)} kW`, { size: 14, align: 'CL' });
     } else {

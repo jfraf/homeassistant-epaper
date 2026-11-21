@@ -6,7 +6,9 @@
 #   - sofort (2 s entprellt): Fenster/Türen, Garage, Autotüren/-fenster, Ladekabel/-status/-modus,
 #     Waschmaschine (Erreichbarkeit/Zustand/Programm), Verbindung zu HA, Tastendruck
 #   - alle ${slow_refresh}: nur wenn sich ein angezeigter "langsamer" Wert sichtbar geändert hat
-#     (PV-Leistung/-Ertrag/-Prognose, Akkustand, Reichweite, Ladeleistung, Restlaufzeit Waschmaschine)
+#     (PV-Leistung/-Ertrag/-Prognose, Akkustand, Reichweite, Ladeleistung, Restlaufzeit Waschmaschine);
+#     derselbe Check zeichnet auch neu, falls ein Sofort-Trigger einmal verloren gegangen ist
+#   - zwischen zwei Refreshes liegen mindestens 12 s (das Panel ignoriert Bilder während eines Refreshs)
 
 substitutions:
   name: haus-display
@@ -38,9 +40,6 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  # Nur für das ERSTE OTA-Update nach der Umbenennung (Gerät heißt noch fenster-display).
-  # Nach erfolgreichem Flash diese Zeile entfernen.
-  use_address: fenster-display.local
   ap:
     ssid: ${friendly_name} Fallback
 
@@ -55,6 +54,9 @@ globals:
     type: std::string
   - id: drawn_sig    # Signatur zum Zeitpunkt des letzten Zeichnens
     type: std::string
+  - id: last_draw_ms # millis() beim letzten Zeichnen (Panel braucht einige Sekunden pro Refresh)
+    type: uint32_t
+    initial_value: '0'
 
 # ---------------------------------------------------------------------------
 # Display
@@ -192,12 +194,19 @@ display:
         cell(4, gy, 144, 42, g_open, g_open ? "\U000F12D4" : "\U000F12D3", "Garage", gv);
 
         std::string issues;
+        int n_issues = 0;
         auto add = [&](binary_sensor::BinarySensor *s, const char *n) {
-          if (s->has_state() && s->state) { if (!issues.empty()) issues += ", "; issues += n; }
+          if (s->has_state() && s->state) { if (!issues.empty()) issues += ", "; issues += n; n_issues++; }
         };
         add(id(car_doors), "Tür"); add(id(car_windows), "Fenster"); add(id(car_trunk), "Klappe"); add(id(car_hood), "Haube");
-        cell(152, gy, 144, 42, !issues.empty(), issues.empty() ? "\U000F010B" : "\U000F0B6B", "Auto",
-             issues.empty() ? std::string("alles zu") : issues + " offen");
+        // 1 Problem: "Fenster offen"; mehrere: Liste in der kleinen Zeile (falls sie passt), groß "2 offen"
+        std::string label = "Auto", value = "alles zu";
+        if (n_issues == 1) value = issues + " offen";
+        else if (n_issues > 1) {
+          value = std::to_string(n_issues) + " offen";
+          if (text_w(id(f_11), issues.c_str()) <= 104) label = issues;
+        }
+        cell(152, gy, 144, 42, n_issues > 0, n_issues ? "\U000F0B6B" : "\U000F010B", label.c_str(), value);
       }
 
       // ======================= Waschmaschine (nur wenn erreichbar) =======================
@@ -218,7 +227,7 @@ display:
             char b[24]; snprintf(b, sizeof(b), "noch %d:%02d h", mins / 60, mins % 60); right = b;
           }
         } else if (wm_op == "DelayedStart") {
-          line1 += " · Startvorwahl"; line2 = prog;
+          line1 = "Startvorwahl"; line2 = prog;
           const std::string fr = txt(id(wm_finish_rel));
           if (!hd::ha_missing(fr)) right = "fertig in " + fr + " h";
         } else if (wm_op == "Pause") {
@@ -240,8 +249,9 @@ display:
       // ======================= Auto (Laden) =======================
       it.horizontal_line(4, 195, W - 8);
       {
-        std::string rng = valid(id(car_range)) ? std::to_string((int) id(car_range).state) + " km" : "";
-        section(199, "\U000F0B6C", "AUTO", rng);
+        section(199, "\U000F0B6C", "AUTO", "");
+        if (valid(id(car_range)))
+          it.printf(134, 247, id(f_11), TextAlign::BASELINE_RIGHT, "%d km", (int) id(car_range).state);
         if (valid(id(car_soc))) {
           char b[8]; snprintf(b, sizeof(b), "%.0f", id(car_soc).state);
           it.print(6, 247, id(f_big), TextAlign::BASELINE_LEFT, b);
@@ -266,7 +276,7 @@ display:
         } else {
           it.print(152, 228, id(f_icon_m), TextAlign::CENTER_LEFT, "\U000F151E");
           const std::string mode = txt(id(wb_mode));
-          it.print(184, 228, id(f_16b), TextAlign::CENTER_LEFT, hd::ha_missing(mode) ? "–" : mode.c_str());
+          it.print(184, 228, id(f_15b), TextAlign::CENTER_LEFT, hd::ha_missing(mode) ? "–" : mode.c_str());
           if (txt(id(car_charge_state)) == "charging") {
             it.print(152, 256, id(f_icon_c), TextAlign::CENTER_LEFT, "\U000F0241");
             std::string p = "lädt " + (valid(id(car_charge_power)) ? hd::fmt1(id(car_charge_power).state) : std::string("?")) + " kW";
@@ -328,6 +338,7 @@ display:
       // Signatur der langsamen Werte merken, damit der Intervall-Check nur bei Änderungen neu zeichnet
       id(compute_sig).execute();
       id(drawn_sig) = id(cur_sig);
+      id(last_draw_ms) = millis();
 
 script:
   # Entprellt Zustandsänderungen: mehrere Änderungen kurz hintereinander -> ein Refresh
@@ -335,6 +346,17 @@ script:
     mode: restart
     then:
       - delay: 2s
+      - script.execute: draw_safe
+
+  # Zeichnet erst, wenn der letzte Refresh mindestens 12 s her ist. Der ESPHome-Treiber für das 4.20in
+  # wartet nicht auf das BUSY-Signal; ein Bild, das während eines laufenden Refreshs kommt, geht verloren.
+  # Ein bereits wartender Aufruf wird ersetzt (restart), es wird also immer der aktuellste Stand gezeichnet.
+  - id: draw_safe
+    mode: restart
+    then:
+      - wait_until:
+          condition:
+            lambda: return millis() - id(last_draw_ms) > 12000;
       - component.update: epd
 
   # Berechnet eine Signatur aller "langsamen" Werte in der Auflösung, in der sie angezeigt werden
@@ -357,7 +379,19 @@ script:
                    r(id(fc_tom_1), 0.1f), r(id(fc_tom_2), 0.1f), r(id(car_soc), 1), r(id(car_range), 10),
                    r(id(car_limit), 1), r(id(car_charge_power), 0.1f), r(id(wm_progress), 5), wm_min,
                    (long) (now.is_valid() ? now.day_of_year : 0));
-          id(cur_sig) = b;
+          // schnelle Zustände (normalerweise per Trigger), hier als Sicherheitsnetz mit drin
+          std::string f = id(ha_status).state ? "C" : "D";
+          for (binary_sensor::BinarySensor *s : std::initializer_list<binary_sensor::BinarySensor *>{
+                   id(c_haustuer), id(c_wohnzimmer), id(c_kueche), id(c_wc), id(c_bad_og), id(c_spielzimmer),
+                   id(c_korbinian), id(c_tobias), id(c_velux), id(c_mitte), id(c_bad_dg), id(car_doors),
+                   id(car_windows), id(car_trunk), id(car_hood), id(car_plug), id(wm_connected)})
+            f += s->has_state() ? (s->state ? '1' : '0') : '?';
+          for (text_sensor::TextSensor *s : std::initializer_list<text_sensor::TextSensor *>{
+                   id(s_balkontuer), id(garage), id(car_charge_state), id(wb_mode), id(wm_state), id(wm_program)}) {
+            f += '|';
+            if (s->has_state()) f += s->state;
+          }
+          id(cur_sig) = std::string(b) + "#" + f;
 
 interval:
   - interval: ${slow_refresh}
@@ -373,14 +407,16 @@ interval:
 # Fonts
 # ---------------------------------------------------------------------------
 font:
+  # Normalschrift: DejaVu Sans – stark gehintet, bleibt bei 10–15 px und 1 Bit sauber lesbar
+  # (Roboto 400 verliert dort Details, z. B. "a" wird zu "e"). Fett: Roboto 700 (DejaVu Bold zerfällt bei 15/16 px).
   - {file: "gfonts://Roboto@700", id: f_15b, size: 15, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "gfonts://Roboto@400", id: f_15, size: 15, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "fonts/DejaVuSans.ttf", id: f_15, size: 15, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
   - {file: "gfonts://Roboto@700", id: f_sec, size: 11, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "gfonts://Roboto@400", id: f_14, size: 14, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "gfonts://Roboto@400", id: f_13, size: 13, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "gfonts://Roboto@400", id: f_12, size: 12, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "gfonts://Roboto@400", id: f_11, size: 11, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "gfonts://Roboto@400", id: f_10, size: 10, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "fonts/DejaVuSans.ttf", id: f_14, size: 14, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "fonts/DejaVuSans.ttf", id: f_13, size: 13, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "fonts/DejaVuSans.ttf", id: f_12, size: 12, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "fonts/DejaVuSans.ttf", id: f_11, size: 11, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "fonts/DejaVuSans.ttf", id: f_10, size: 10, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
   - {file: "gfonts://Roboto@700", id: f_16b, size: 16, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
   - {file: "gfonts://Roboto@700", id: f_20b, size: 20, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
   - {file: "gfonts://Roboto@700", id: f_22b, size: 22, glyphs: "0123456789,. –-ackWh"}
@@ -459,27 +495,27 @@ binary_sensor:
       - script.execute: refresh
 
   # Fenster & Türen
-  - {platform: homeassistant, id: c_haustuer,    entity_id: binary_sensor.fenster_und_turkontakt_mit_magnet, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: c_wohnzimmer,  entity_id: binary_sensor.fenster_und_turkontakt, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: c_kueche,      entity_id: binary_sensor.kuche_fenster_und_turkontakt, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: c_wc,          entity_id: binary_sensor.fensterkontakt_2, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: c_bad_og,      entity_id: binary_sensor.fensterkontakt, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: c_spielzimmer, entity_id: binary_sensor.fenster_und_turkontakt_spielzimmer, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: c_korbinian,   entity_id: binary_sensor.fensterkontakt_3, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: c_tobias,      entity_id: binary_sensor.fensterkontakt_4, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: c_velux,       entity_id: binary_sensor.fensterkontakt_velux, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: c_mitte,       entity_id: binary_sensor.fensterkontakt_mitte, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: c_bad_dg,      entity_id: binary_sensor.shutter_contact, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_haustuer,    entity_id: binary_sensor.fenster_und_turkontakt_mit_magnet, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_wohnzimmer,  entity_id: binary_sensor.fenster_und_turkontakt, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_kueche,      entity_id: binary_sensor.kuche_fenster_und_turkontakt, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_wc,          entity_id: binary_sensor.fensterkontakt_2, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_bad_og,      entity_id: binary_sensor.fensterkontakt, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_spielzimmer, entity_id: binary_sensor.fenster_und_turkontakt_spielzimmer, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_korbinian,   entity_id: binary_sensor.fensterkontakt_3, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_tobias,      entity_id: binary_sensor.fensterkontakt_4, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_velux,       entity_id: binary_sensor.fensterkontakt_velux, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_mitte,       entity_id: binary_sensor.fensterkontakt_mitte, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_bad_dg,      entity_id: binary_sensor.shutter_contact, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
 
   # Auto
-  - {platform: homeassistant, id: car_doors,   entity_id: binary_sensor.skoda_enyaq_turen_offen, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: car_windows, entity_id: binary_sensor.skoda_enyaq_fenster, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: car_trunk,   entity_id: binary_sensor.skoda_enyaq_kofferraum, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: car_hood,    entity_id: binary_sensor.skoda_enyaq_motorhaube, internal: true, on_state: {then: [script.execute: refresh]}}
-  - {platform: homeassistant, id: car_plug,    entity_id: binary_sensor.skoda_enyaq_ladekabel, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: car_doors,   entity_id: binary_sensor.skoda_enyaq_turen_offen, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: car_windows, entity_id: binary_sensor.skoda_enyaq_fenster, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: car_trunk,   entity_id: binary_sensor.skoda_enyaq_kofferraum, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: car_hood,    entity_id: binary_sensor.skoda_enyaq_motorhaube, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: car_plug,    entity_id: binary_sensor.skoda_enyaq_ladekabel, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
 
   # Waschmaschine
-  - {platform: homeassistant, id: wm_connected, entity_id: binary_sensor.siemens_wm14ur5em2_68a40e98d48e_connected, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: wm_connected, entity_id: binary_sensor.siemens_wm14ur5em2_68a40e98d48e_connected, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
 
   # Taster (schalten +3V3, daher Pulldown, nicht invertiert). Im Moment: Refresh erzwingen.
   - platform: gpio
@@ -490,7 +526,7 @@ binary_sensor:
       mode: {input: true, pulldown: true}
       ignore_strapping_warning: true # Taster beim Booten nicht gedrückt halten!
     filters: [delayed_on: 20ms]
-    on_press: [component.update: epd]
+    on_press: [script.execute: draw_safe]
   - platform: gpio
     id: btn_2
     name: Taste 2
@@ -498,7 +534,7 @@ binary_sensor:
       number: GPIO14
       mode: {input: true, pulldown: true}
     filters: [delayed_on: 20ms]
-    on_press: [component.update: epd]
+    on_press: [script.execute: draw_safe]
   - platform: gpio
     id: btn_3
     name: Taste 3
@@ -506,7 +542,7 @@ binary_sensor:
       number: GPIO13
       mode: {input: true, pulldown: true}
     filters: [delayed_on: 20ms]
-    on_press: [component.update: epd]
+    on_press: [script.execute: draw_safe]
   - platform: gpio
     id: btn_4
     name: Taste 4
@@ -515,4 +551,4 @@ binary_sensor:
       mode: {input: true, pulldown: true}
       ignore_strapping_warning: true # Strapping-Pin, im Betrieb unkritisch
     filters: [delayed_on: 20ms]
-    on_press: [component.update: epd]
+    on_press: [script.execute: draw_safe]
