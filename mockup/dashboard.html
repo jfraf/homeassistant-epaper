@@ -32,11 +32,10 @@
 
   /* Gehäuse + Display (300 x 400 px, 1 bit) */
   .bezel { padding: 22px; background: #f4f4f2; border-radius: 10px; box-shadow: 0 2px 14px rgba(0,0,0,.18); }
-  .scaler { width: calc(300px * var(--z)); height: calc(400px * var(--z)); }
   .epd {
     --z: 2;
     width: 300px; height: 400px; background: var(--paper); color: var(--ink);
-    transform: scale(var(--z)); transform-origin: 0 0; position: relative; overflow: hidden;
+    zoom: var(--z); position: relative; overflow: hidden;
     font-family: Roboto, sans-serif; -webkit-font-smoothing: none; font-smooth: never;
   }
   .epd .mdi::before { line-height: 1; }
@@ -66,10 +65,11 @@
 
   .big { font-weight: 700; line-height: 1; }
   .small { font-size: 12px; }
-  .bar { height: 12px; border: 1px solid var(--ink); position: relative; }
+  .bar { height: 12px; border: 1px solid var(--ink); } /* Positionierung über .abs */
   .bar .f { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); }
   .bar .tick { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); }
-  .bar .rest { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 3px); }
+  .bar .rest { position: absolute; top: 0; bottom: 0; }
+  .bar .rest svg { display: block; width: 100%; height: 100%; shape-rendering: crispEdges; }
 </style>
 </head>
 <body>
@@ -91,7 +91,7 @@
     </div>
   </section>
 
-  <div class="bezel"><div class="scaler" id="scaler"><div class="epd" id="epd"></div></div></div>
+  <div class="bezel"><div class="epd" id="epd"></div></div>
 </main>
 
 <script>
@@ -198,7 +198,9 @@ function render(s) {
   const total = p.today + (p.night ? 0 : p.rest);
   const fDone = total ? p.today / total * 100 : 0;
   h += el('bar', 'top:368px; left:6px; width:288px',
-    `<div class="f" style="width:${fDone}%"></div><div class="rest" style="left:${fDone}%; width:${100 - fDone}%"></div>`);
+    `<div class="f" style="width:${fDone}%"></div><div class="rest" style="left:${fDone}%; width:${100 - fDone}%">`
+    + `<svg><defs><pattern id="hatch" width="3" height="10" patternUnits="userSpaceOnUse"><rect width="1" height="10" fill="#000"/></pattern></defs>`
+    + `<rect width="100%" height="100%" fill="url(#hatch)"/></svg></div>`);
   h += el('small', 'top:383px; left:6px; width:288px; display:flex; justify-content:space-between; font-size:10px',
     `<span>erzeugt ${fmt(p.today)} kWh</span><span>${p.night ? 'Tag beendet' : `Tagesprognose ≈ ${fmt(total)} kWh`}</span>`);
 
@@ -217,8 +219,8 @@ SCENARIOS.forEach((s, i) => {
 render(SCENARIOS[0]);
 
 // Zoom
-const epd = document.getElementById('epd'), scaler = document.getElementById('scaler');
-function setZoom(z) { epd.style.setProperty('--z', z); scaler.style.setProperty('--z', z); }
+const epd = document.getElementById('epd');
+function setZoom(z) { epd.style.setProperty('--z', z); }
 document.querySelectorAll('.zoomrow button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.zoomrow button').forEach(x => x.setAttribute('aria-pressed', x === b));
   setZoom(+b.dataset.z);
