@@ -6,16 +6,16 @@ E-Paper-Dashboard für Home Assistant auf Basis von ESPHome. Die Hardware stammt
 
 - LOLIN D32 (ESP32-WROOM-32)
 - Waveshare 4.2" e-Paper-Modul V1 (UC8176, 400×300, s/w)
-- Taster nach +3V3 (interne Pulldowns)
+- 4 Taster nach +3V3 (interne Pulldowns)
 
 | Funktion | GPIO |
 |---|---|
 | e-Paper BUSY / RST / DC / CS | 4 / 16 / 17 / 5 |
 | e-Paper CLK / DIN | 18 / 23 |
-| Taster „Angenommen“ | 12 (Strapping-Pin, beim Booten nicht drücken) |
-| Taster „Abgehend“ | 13 |
-| Taster „Verpasst/AB“ | 14 |
-| Taster „Alle“ | 15 (Strapping-Pin) |
+| Taste 1 (links) | 12 (Strapping-Pin, beim Booten nicht drücken) |
+| Taste 2 | 14 |
+| Taste 3 | 13 |
+| Taste 4 (rechts) | 15 (Strapping-Pin) |
 
 ## Konfigurationen
 
