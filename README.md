@@ -19,14 +19,24 @@ E-Paper-Dashboard für Home Assistant auf Basis von ESPHome. Die Hardware stammt
 
 ## Konfigurationen
 
-- `fenster-display.yaml`: PoC, der den Zustand aller Fenster und der Haustür nach Stockwerken anzeigt (offen / gekippt / zu).
+- `haus-display.yaml` + `haus_display.h`: Übersichtsseite (hochkant, 300×400) mit
+  - Fenster & Türen (nur offene / gekippte / unklare Räume)
+  - Garage und Auto (Tore, Türen, Fenster offen?)
+  - Waschmaschine (Programm, Fortschritt, Restlaufzeit; nur wenn erreichbar)
+  - Auto: Ladestand, Reichweite, Ladelimit, Lademodus (openWB), Ladeleistung
+  - PV: aktuelle Leistung, Ertrag heute, Restprognose (Forecast.Solar, 2 Flächen) bzw. Prognose morgen
+- `mockup/dashboard.html`: HTML-Skizze der Übersichtsseite
+
+Sicherheitsrelevante Zustände (Fenster, Türen, Garage, Auto, Waschmaschinenstatus) aktualisieren das Display sofort.
+Langsam veränderliche Werte (PV, Akkustand, Restlaufzeit …) werden alle 5 Minuten geprüft und lösen nur dann einen
+Refresh aus, wenn sich der angezeigte Wert ändert. Das Panel kann in ESPHome nur vollständig aktualisiert werden.
 
 ## Build & Flash
 
 ```sh
 python3 -m venv .venv && .venv/bin/pip install esphome
 cp secrets.yaml.example secrets.yaml   # ausfüllen; API-Key: openssl rand -base64 32
-.venv/bin/esphome compile fenster-display.yaml
+.venv/bin/esphome compile haus-display.yaml
 ```
 
-Beim ersten Mal `.esphome/build/fenster-display/build/firmware.factory.bin` per USB flashen (z. B. über https://web.esphome.io). Danach geht es per OTA: `.venv/bin/esphome run fenster-display.yaml`.
+Beim ersten Mal `.esphome/build/haus-display/build/firmware.factory.bin` per USB flashen (z. B. über https://web.esphome.io). Danach geht es per OTA: `.venv/bin/esphome run haus-display.yaml`.

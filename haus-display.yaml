@@ -1,0 +1,518 @@
+# Haus-Display: Übersichtsseite für Home Assistant auf dem ehemaligen FRITZ!Box-Anruflisten-Display
+# Hardware: LOLIN D32 (ESP32) + Waveshare 4.2" e-Paper V1 (UC8176, 400x300 s/w), hochkant montiert
+#           4 Taster nach +3V3: Taste 1-4 = GPIO 12 / 14 / 13 / 15 (am Gehäuse von links nach rechts)
+#
+# Aktualisierung:
+#   - sofort (2 s entprellt): Fenster/Türen, Garage, Autotüren/-fenster, Ladekabel/-status/-modus,
+#     Waschmaschine (Erreichbarkeit/Zustand/Programm), Verbindung zu HA, Tastendruck
+#   - alle ${slow_refresh}: nur wenn sich ein angezeigter "langsamer" Wert sichtbar geändert hat
+#     (PV-Leistung/-Ertrag/-Prognose, Akkustand, Reichweite, Ladeleistung, Restlaufzeit Waschmaschine)
+
+substitutions:
+  name: haus-display
+  friendly_name: Haus-Display
+  slow_refresh: 5min
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  includes:
+    - haus_display.h
+
+esp32:
+  board: lolin_d32
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    encryption:
+      key: !secret api_encryption_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Nur für das ERSTE OTA-Update nach der Umbenennung (Gerät heißt noch fenster-display).
+  # Nach erfolgreichem Flash diese Zeile entfernen.
+  use_address: fenster-display.local
+  ap:
+    ssid: ${friendly_name} Fallback
+
+captive_portal:
+
+time:
+  - platform: homeassistant
+    id: ha_time
+
+globals:
+  - id: cur_sig      # Signatur der "langsamen" Werte, zuletzt berechnet
+    type: std::string
+  - id: drawn_sig    # Signatur zum Zeitpunkt des letzten Zeichnens
+    type: std::string
+
+# ---------------------------------------------------------------------------
+# Display
+# ---------------------------------------------------------------------------
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+
+display:
+  # Hinweis: waveshare_epaper ist ab ESPHome 2026.x deprecated (Entfernung 2027.5).
+  # Der Nachfolger epaper_spi unterstützt den UC8176 (4.2" V1) noch nicht.
+  # Das Modell 4.20in kann in ESPHome nur Voll-Refreshes (kein Partial Update).
+  - platform: waveshare_epaper
+    id: epd
+    model: 4.20in
+    cs_pin:
+      number: GPIO5
+      ignore_strapping_warning: true
+    dc_pin: GPIO17
+    reset_pin: GPIO16
+    busy_pin: GPIO4
+    rotation: 270 # Display hängt hochkant
+    update_interval: never
+    lambda: |-
+      const int W = 300;
+      auto valid = [](sensor::Sensor *s) { return s->has_state() && !std::isnan(s->state); };
+      auto txt = [](text_sensor::TextSensor *s) -> std::string { return s->has_state() ? s->state : std::string(); };
+      auto text_w = [&](font::Font *f, const char *t) { int x1, y1, w, h; it.get_text_bounds(0, 0, t, f, TextAlign::TOP_LEFT, &x1, &y1, &w, &h); return w; };
+      auto now = id(ha_time).now();
+
+      // ======================= Kopfzeile =======================
+      it.filled_rectangle(0, 0, W, 28);
+      if (now.is_valid()) {
+        static const char *WD[] = {"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+        it.printf(7, 14, id(f_15b), COLOR_OFF, TextAlign::CENTER_LEFT, "%s %02d.%02d.", WD[(now.day_of_week + 6) % 7], now.day_of_month, now.month);
+      }
+      if (!id(ha_status).state)
+        it.print(W - 7, 14, id(f_15), COLOR_OFF, TextAlign::CENTER_RIGHT, "keine Verbindung");
+      else if (now.is_valid())
+        it.strftime(W - 7, 14, id(f_15), COLOR_OFF, TextAlign::CENTER_RIGHT, "Stand %H:%M", now);
+
+      auto section = [&](int y, const char *icon, const char *title, const std::string &right) {
+        it.print(6, y, id(f_icon_s), TextAlign::TOP_LEFT, icon);
+        it.print(23, y + 1, id(f_sec), TextAlign::TOP_LEFT, title);
+        if (!right.empty()) it.print(W - 6, y + 1, id(f_11), TextAlign::TOP_RIGHT, right.c_str());
+      };
+
+      // ======================= Waschmaschine sichtbar? =======================
+      const std::string wm_op = hd::last_segment(txt(id(wm_state)));
+      const bool wm = id(wm_connected).has_state() && id(wm_connected).state && !hd::ha_missing(txt(id(wm_state)));
+
+      // ======================= Fenster & Türen =======================
+      // Zustand: 0 = zu, 1 = offen, 2 = gekippt, -1 = unklar
+      auto bs = [](binary_sensor::BinarySensor *s) -> int { return s->has_state() ? (s->state ? 1 : 0) : -1; };
+      auto ts = [](text_sensor::TextSensor *s) -> int {
+        if (!s->has_state()) return -1;
+        if (s->state == "closed") return 0;
+        if (s->state == "open") return 1;
+        if (s->state == "tilted") return 2;
+        return -1;
+      };
+      struct Item { const char *name; int state; bool door; };
+      const Item items[] = {
+        {"Haustür",     bs(id(c_haustuer)), true},
+        {"Wohnzimmer",  bs(id(c_wohnzimmer)), false},
+        {"Küche",       bs(id(c_kueche)), false},
+        {"WC",          bs(id(c_wc)), false},
+        {"Bad OG",      bs(id(c_bad_og)), false},
+        {"Spielzimmer", bs(id(c_spielzimmer)), false},
+        {"Balkontür",   ts(id(s_balkontuer)), true},
+        {"Korbinian",   bs(id(c_korbinian)), false},
+        {"Tobias",      bs(id(c_tobias)), false},
+        {"SZ Velux",    bs(id(c_velux)), false},
+        {"SZ Mitte",    bs(id(c_mitte)), false},
+        {"Bad DG",      bs(id(c_bad_dg)), false},
+      };
+      int n_open = 0, n_unk = 0;
+      for (const auto &e : items) { if (e.state > 0) n_open++; if (e.state < 0) n_unk++; }
+      {
+        char r[40] = "";
+        if (n_open && n_unk) snprintf(r, sizeof(r), "%d offen · %d unklar", n_open, n_unk);
+        else if (n_open) snprintf(r, sizeof(r), "%d offen", n_open);
+        else if (n_unk) snprintf(r, sizeof(r), "%d unklar", n_unk);
+        section(33, "\U000F11DB", "FENSTER & TÜREN", r);
+      }
+      const int rows = wm ? 2 : 3;          // Chip-Zeilen (Waschmaschine braucht Platz)
+      const int chips_top = 51;
+      if (n_open + n_unk == 0) {
+        const int cy = chips_top + (rows * 25) / 2 - 2;
+        it.print(6, cy, id(f_icon_l), TextAlign::CENTER_LEFT, "\U000F05E0");  // check-circle
+        it.print(44, cy, id(f_20b), TextAlign::CENTER_LEFT, "Alles geschlossen");
+      } else {
+        const int max = rows * 2, total = n_open + n_unk;
+        const int shown = total > max ? max - 1 : total;
+        int k = 0;
+        for (int pass = 0; pass < 2; pass++) {       // erst offene, dann unklare
+          for (const auto &e : items) {
+            if (k >= shown) break;
+            if ((pass == 0 && e.state <= 0) || (pass == 1 && e.state >= 0)) continue;
+            const int x = 4 + (k % 2) * 148, y = chips_top + (k / 2) * 25;
+            Color fg = COLOR_ON;
+            if (e.state > 0) { it.filled_rectangle(x, y, 144, 22); fg = COLOR_OFF; }
+            else it.rectangle(x, y, 144, 22);
+            const char *icon = e.state < 0 ? "\U000F0625" : (e.door ? "\U000F081C" : "\U000F11DC");
+            it.print(x + 4, y + 11, id(f_icon_c), fg, TextAlign::CENTER_LEFT, icon);
+            it.print(x + 23, y + 11, id(f_13), fg, TextAlign::CENTER_LEFT, e.name);
+            const char *suf = e.state < 0 ? "unklar" : (e.state == 2 ? "gekippt" : "");
+            if (*suf) it.print(x + 140, y + 11, id(f_11), fg, TextAlign::CENTER_RIGHT, suf);
+            k++;
+          }
+        }
+        if (total > max) {
+          const int x = 4 + (k % 2) * 148, y = chips_top + (k / 2) * 25;
+          it.rectangle(x, y, 144, 22);
+          it.printf(x + 6, y + 11, id(f_13), TextAlign::CENTER_LEFT, "+%d weitere", total - shown);
+        }
+      }
+      const int rule1 = chips_top + rows * 25 + 2;
+      it.horizontal_line(4, rule1, W - 8);
+
+      // ======================= Garage | Auto =======================
+      const int gy = rule1 + 4;
+      auto cell = [&](int x, int y, int w, int h, bool inv, const char *icon, const char *label, const std::string &value) {
+        Color fg = COLOR_ON;
+        if (inv) { it.filled_rectangle(x, y, w, h); fg = COLOR_OFF; } else it.rectangle(x, y, w, h);
+        it.print(x + 5, y + h / 2, id(f_icon_m), fg, TextAlign::CENTER_LEFT, icon);
+        it.print(x + 37, y + h / 2 - 1, id(f_11), fg, TextAlign::BOTTOM_LEFT, label);
+        it.print(x + 37, y + h / 2, id(f_15b), fg, TextAlign::TOP_LEFT, value.c_str());
+      };
+      {
+        const std::string g = txt(id(garage));
+        const bool g_unk = hd::ha_missing(g);
+        const bool g_open = !g_unk && g != "closed";
+        std::string gv = g_unk ? "unklar" : g == "closed" ? "zu" : g == "opening" ? "öffnet" : g == "closing" ? "schließt" : "OFFEN";
+        cell(4, gy, 144, 42, g_open, g_open ? "\U000F12D4" : "\U000F12D3", "Garage", gv);
+
+        std::string issues;
+        auto add = [&](binary_sensor::BinarySensor *s, const char *n) {
+          if (s->has_state() && s->state) { if (!issues.empty()) issues += ", "; issues += n; }
+        };
+        add(id(car_doors), "Tür"); add(id(car_windows), "Fenster"); add(id(car_trunk), "Klappe"); add(id(car_hood), "Haube");
+        cell(152, gy, 144, 42, !issues.empty(), issues.empty() ? "\U000F010B" : "\U000F0B6B", "Auto",
+             issues.empty() ? std::string("alles zu") : issues + " offen");
+      }
+
+      // ======================= Waschmaschine (nur wenn erreichbar) =======================
+      if (wm) {
+        const int y = gy + 44, h = 40;
+        const std::string prog = hd::wm_program_name(txt(id(wm_program)));
+        const bool alert = wm_op == "Finished" || wm_op == "ActionRequired" || wm_op == "Error";
+        Color fg = COLOR_ON;
+        if (alert) { it.filled_rectangle(4, y, 292, h); fg = COLOR_OFF; } else it.rectangle(4, y, 292, h);
+        it.print(9, y + h / 2, id(f_icon_m), fg, TextAlign::CENTER_LEFT, alert ? "\U000F11BC" : "\U000F072A");
+        std::string line1 = "Waschmaschine", line2, right;
+        if (wm_op == "Run") {
+          if (valid(id(wm_progress))) { char b[16]; snprintf(b, sizeof(b), " · %.0f %%", id(wm_progress).state); line1 += b; }
+          line2 = prog.empty() ? "läuft" : prog;
+          const int64_t end = hd::parse_iso_utc(txt(id(wm_remaining)));
+          if (end > 0 && now.is_valid()) {
+            const int mins = std::max<int64_t>(0, (end - (int64_t) now.timestamp + 59) / 60);
+            char b[24]; snprintf(b, sizeof(b), "noch %d:%02d h", mins / 60, mins % 60); right = b;
+          }
+        } else if (wm_op == "DelayedStart") {
+          line1 += " · Startvorwahl"; line2 = prog;
+          const std::string fr = txt(id(wm_finish_rel));
+          if (!hd::ha_missing(fr)) right = "fertig in " + fr + " h";
+        } else if (wm_op == "Pause") {
+          line2 = prog.empty() ? "pausiert" : prog + " (Pause)";
+        } else if (wm_op == "Finished") {
+          line2 = "fertig – ausräumen!";
+        } else if (wm_op == "ActionRequired") {
+          line2 = "Aktion erforderlich";
+        } else if (wm_op == "Error") {
+          line2 = "Fehler";
+        } else {
+          line2 = "bereit";
+        }
+        it.print(41, y + h / 2 - 1, id(f_11), fg, TextAlign::BOTTOM_LEFT, line1.c_str());
+        it.print(41, y + h / 2, id(f_15b), fg, TextAlign::TOP_LEFT, line2.c_str());
+        if (!right.empty()) it.print(290, y + h / 2, id(f_16b), fg, TextAlign::CENTER_RIGHT, right.c_str());
+      }
+
+      // ======================= Auto (Laden) =======================
+      it.horizontal_line(4, 195, W - 8);
+      {
+        std::string rng = valid(id(car_range)) ? std::to_string((int) id(car_range).state) + " km" : "";
+        section(199, "\U000F0B6C", "AUTO", rng);
+        if (valid(id(car_soc))) {
+          char b[8]; snprintf(b, sizeof(b), "%.0f", id(car_soc).state);
+          it.print(6, 247, id(f_big), TextAlign::BASELINE_LEFT, b);
+          it.print(6 + text_w(id(f_big), b) + 3, 247, id(f_20b), TextAlign::BASELINE_LEFT, "%");
+          const int bx = 6, by = 253, bw = 128, bh = 12;
+          it.rectangle(bx, by, bw, bh);
+          const float soc = std::min(100.0f, std::max(0.0f, id(car_soc).state));
+          it.filled_rectangle(bx + 1, by + 1, (int) ((bw - 2) * soc / 100.0f), bh - 2);
+          if (valid(id(car_limit))) {
+            const int tx = bx + (int) (bw * id(car_limit).state / 100.0f);
+            it.filled_rectangle(tx - 1, by - 3, 2, bh + 6);
+            it.printf(6, 268, id(f_10), TextAlign::TOP_LEFT, "Ladelimit %.0f %%", id(car_limit).state);
+          }
+        } else {
+          it.print(6, 247, id(f_big), TextAlign::BASELINE_LEFT, "–");
+        }
+        const bool plugged = id(car_plug).has_state() && id(car_plug).state;
+        if (!plugged) {
+          it.print(152, 230, id(f_icon_m), TextAlign::CENTER_LEFT, "\U000F1424");
+          it.print(184, 222, id(f_14), TextAlign::CENTER_LEFT, "nicht");
+          it.print(184, 239, id(f_14), TextAlign::CENTER_LEFT, "angesteckt");
+        } else {
+          it.print(152, 228, id(f_icon_m), TextAlign::CENTER_LEFT, "\U000F151E");
+          const std::string mode = txt(id(wb_mode));
+          it.print(184, 228, id(f_16b), TextAlign::CENTER_LEFT, hd::ha_missing(mode) ? "–" : mode.c_str());
+          if (txt(id(car_charge_state)) == "charging") {
+            it.print(152, 256, id(f_icon_c), TextAlign::CENTER_LEFT, "\U000F0241");
+            std::string p = "lädt " + (valid(id(car_charge_power)) ? hd::fmt1(id(car_charge_power).state) : std::string("?")) + " kW";
+            it.print(170, 256, id(f_14), TextAlign::CENTER_LEFT, p.c_str());
+          } else {
+            it.print(152, 252, id(f_14), TextAlign::CENTER_LEFT, "angesteckt,");
+            it.print(152, 268, id(f_14), TextAlign::CENTER_LEFT, "lädt nicht");
+          }
+        }
+      }
+
+      // ======================= PV =======================
+      it.horizontal_line(4, 284, W - 8);
+      {
+        const bool has_today = valid(id(pv_today));
+        const float today = has_today ? id(pv_today).state : 0;
+        section(289, "\U000F1A73", "PV", has_today ? "heute " + hd::fmt1(today) + " kWh" : "");
+
+        if (valid(id(pv_power))) {
+          const float w = id(pv_power).state;
+          std::string num, unit;
+          if (w < 1000) { num = std::to_string((int) w); unit = "W"; } else { num = hd::fmt1(w / 1000.0f); unit = "kW"; }
+          it.print(6, 340, id(f_big), TextAlign::BASELINE_LEFT, num.c_str());
+          it.print(6 + text_w(id(f_big), num.c_str()) + 4, 340, id(f_20b), TextAlign::BASELINE_LEFT, unit.c_str());
+        } else {
+          it.print(6, 340, id(f_big), TextAlign::BASELINE_LEFT, "–");
+        }
+        it.print(6, 345, id(f_12), TextAlign::TOP_LEFT, "aktuell");
+
+        const bool has_rest = valid(id(fc_rest_1)) || valid(id(fc_rest_2));
+        const float rest = (valid(id(fc_rest_1)) ? id(fc_rest_1).state : 0) + (valid(id(fc_rest_2)) ? id(fc_rest_2).state : 0);
+        const bool has_tom = valid(id(fc_tom_1)) || valid(id(fc_tom_2));
+        const float tom = (valid(id(fc_tom_1)) ? id(fc_tom_1).state : 0) + (valid(id(fc_tom_2)) ? id(fc_tom_2).state : 0);
+        const bool night = has_rest && rest < 0.05f;
+        if (night && has_tom) {
+          it.print(152, 309, id(f_12), TextAlign::TOP_LEFT, "Prognose morgen");
+          it.print(152, 325, id(f_22b), TextAlign::TOP_LEFT, ("ca. " + hd::fmt1(tom) + " kWh").c_str());
+        } else if (has_rest) {
+          it.print(152, 309, id(f_12), TextAlign::TOP_LEFT, "noch erwartet heute");
+          it.print(152, 325, id(f_22b), TextAlign::TOP_LEFT, ("ca. " + hd::fmt1(rest) + " kWh").c_str());
+        }
+
+        // Balken: erzeugt (voll) + Rest-Prognose (schraffiert)
+        const int bx = 6, by = 366, bw = 288, bh = 12;
+        it.rectangle(bx, by, bw, bh);
+        const float total = today + (night ? 0 : rest);
+        const int done = total > 0 ? (int) ((bw - 2) * today / total) : 0;
+        it.filled_rectangle(bx + 1, by + 1, done, bh - 2);
+        if (!night && rest > 0)
+          for (int x = bx + 1 + done + 1; x < bx + bw - 1; x += 3) it.vertical_line(x, by + 1, bh - 2);
+        if (has_today)
+          it.print(6, 381, id(f_10), TextAlign::TOP_LEFT, ("erzeugt " + hd::fmt1(today) + " kWh").c_str());
+        if (night)
+          it.print(W - 6, 381, id(f_10), TextAlign::TOP_RIGHT, "Tag beendet");
+        else if (has_rest)
+          it.print(W - 6, 381, id(f_10), TextAlign::TOP_RIGHT, ("Tagesprognose ca. " + hd::fmt1(total) + " kWh").c_str());
+      }
+
+      // Signatur der langsamen Werte merken, damit der Intervall-Check nur bei Änderungen neu zeichnet
+      id(compute_sig).execute();
+      id(drawn_sig) = id(cur_sig);
+
+script:
+  # Entprellt Zustandsänderungen: mehrere Änderungen kurz hintereinander -> ein Refresh
+  - id: refresh
+    mode: restart
+    then:
+      - delay: 2s
+      - component.update: epd
+
+  # Berechnet eine Signatur aller "langsamen" Werte in der Auflösung, in der sie angezeigt werden
+  - id: compute_sig
+    mode: queued
+    then:
+      - lambda: |-
+          auto r = [](sensor::Sensor *s, float step) -> long {
+            return (s->has_state() && !std::isnan(s->state)) ? lroundf(s->state / step) : -99999L;
+          };
+          long wm_min = -1;
+          auto now = id(ha_time).now();
+          if (id(wm_state).has_state() && hd::last_segment(id(wm_state).state) == "Run" && now.is_valid()) {
+            const int64_t end = hd::parse_iso_utc(id(wm_remaining).has_state() ? id(wm_remaining).state : std::string());
+            if (end > 0) wm_min = (long) std::max<int64_t>(0, (end - (int64_t) now.timestamp) / 60) / 5;
+          }
+          char b[200];
+          snprintf(b, sizeof(b), "%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld",
+                   r(id(pv_power), 100), r(id(pv_today), 0.1f), r(id(fc_rest_1), 0.1f), r(id(fc_rest_2), 0.1f),
+                   r(id(fc_tom_1), 0.1f), r(id(fc_tom_2), 0.1f), r(id(car_soc), 1), r(id(car_range), 10),
+                   r(id(car_limit), 1), r(id(car_charge_power), 0.1f), r(id(wm_progress), 5), wm_min,
+                   (long) (now.is_valid() ? now.day_of_year : 0));
+          id(cur_sig) = b;
+
+interval:
+  - interval: ${slow_refresh}
+    then:
+      - script.execute: compute_sig
+      - if:
+          condition:
+            lambda: return id(cur_sig) != id(drawn_sig);
+          then:
+            - script.execute: refresh
+
+# ---------------------------------------------------------------------------
+# Fonts
+# ---------------------------------------------------------------------------
+font:
+  - {file: "gfonts://Roboto@700", id: f_15b, size: 15, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Roboto@400", id: f_15, size: 15, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Roboto@700", id: f_sec, size: 11, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Roboto@400", id: f_14, size: 14, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Roboto@400", id: f_13, size: 13, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Roboto@400", id: f_12, size: 12, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Roboto@400", id: f_11, size: 11, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Roboto@400", id: f_10, size: 10, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Roboto@700", id: f_16b, size: 16, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Roboto@700", id: f_20b, size: 20, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Roboto@700", id: f_22b, size: 22, glyphs: "0123456789,. –-ackWh"}
+  - {file: "gfonts://Roboto@700", id: f_big, size: 36, glyphs: "0123456789,–-"}
+  - file: &mdi "https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf"
+    id: f_icon_s
+    size: 14
+    glyphs:
+      - "\U000F11DB" # window-closed-variant
+      - "\U000F0B6C" # car-electric
+      - "\U000F1A73" # solar-power-variant
+  - file: *mdi
+    id: f_icon_c
+    size: 16
+    glyphs:
+      - "\U000F11DC" # window-open-variant
+      - "\U000F081C" # door-open
+      - "\U000F0625" # help-circle-outline
+      - "\U000F0241" # flash
+  - file: *mdi
+    id: f_icon_m
+    size: 26
+    glyphs:
+      - "\U000F12D3" # garage-variant
+      - "\U000F12D4" # garage-open-variant
+      - "\U000F010B" # car
+      - "\U000F0B6B" # car-door
+      - "\U000F072A" # washing-machine
+      - "\U000F11BC" # washing-machine-alert
+      - "\U000F151E" # ev-plug-type2
+      - "\U000F1424" # power-plug-off-outline
+  - file: *mdi
+    id: f_icon_l
+    size: 30
+    glyphs:
+      - "\U000F05E0" # check-circle
+
+# ---------------------------------------------------------------------------
+# Daten aus Home Assistant
+# ---------------------------------------------------------------------------
+sensor:
+  - platform: wifi_signal
+    name: WLAN-Signal
+    update_interval: 5min
+
+  # "Langsame" Werte: lösen keinen sofortigen Refresh aus (siehe interval)
+  - {platform: homeassistant, id: pv_power,  entity_id: sensor.solaredge_ac_power, internal: true}
+  - {platform: homeassistant, id: pv_today,  entity_id: sensor.solaredge_pv_dc_ertrag_heute, internal: true}
+  - {platform: homeassistant, id: fc_rest_1, entity_id: sensor.energy_production_today_remaining, internal: true}
+  - {platform: homeassistant, id: fc_rest_2, entity_id: sensor.energy_production_today_remaining_2, internal: true}
+  - {platform: homeassistant, id: fc_tom_1,  entity_id: sensor.energy_production_tomorrow, internal: true}
+  - {platform: homeassistant, id: fc_tom_2,  entity_id: sensor.energy_production_tomorrow_2, internal: true}
+  - {platform: homeassistant, id: car_soc,   entity_id: sensor.skoda_enyaq_batteriestand, internal: true}
+  - {platform: homeassistant, id: car_range, entity_id: sensor.skoda_enyaq_reichweite, internal: true}
+  - {platform: homeassistant, id: car_limit, entity_id: sensor.skoda_enyaq_ladegrenze_in_prozent, internal: true}
+  - {platform: homeassistant, id: car_charge_power, entity_id: sensor.skoda_enyaq_ladeleistung, internal: true}
+  - {platform: homeassistant, id: wm_progress, entity_id: sensor.siemens_wm14ur5em2_68a40e98d48e_bsh_common_option_programprogress, internal: true}
+
+text_sensor:
+  # Sofort-Refresh
+  - {platform: homeassistant, id: s_balkontuer, entity_id: sensor.spielzimmer_sz_fenstergriffsensor_balkontur_fensterzustand, internal: true, on_value: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: garage, entity_id: cover.garage_garagentor_tor, internal: true, on_value: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: car_charge_state, entity_id: sensor.skoda_enyaq_ladestatus, internal: true, on_value: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: wb_mode, entity_id: sensor.openwb_lademodus, internal: true, on_value: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: wm_state, entity_id: sensor.siemens_wm14ur5em2_68a40e98d48e_bsh_common_status_operationstate, internal: true, on_value: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: wm_program, entity_id: sensor.siemens_wm14ur5em2_68a40e98d48e_active_program, internal: true, on_value: {then: [script.execute: refresh]}}
+  # Langsam (über Signatur)
+  - {platform: homeassistant, id: wm_remaining, entity_id: sensor.siemens_wm14ur5em2_68a40e98d48e_bsh_common_option_remainingprogramtime, internal: true}
+  - {platform: homeassistant, id: wm_finish_rel, entity_id: sensor.siemens_wm14ur5em2_68a40e98d48e_bsh_common_option_finishinrelative, internal: true}
+
+binary_sensor:
+  - platform: status
+    id: ha_status
+    name: Status
+    on_state:
+      - script.execute: refresh
+
+  # Fenster & Türen
+  - {platform: homeassistant, id: c_haustuer,    entity_id: binary_sensor.fenster_und_turkontakt_mit_magnet, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_wohnzimmer,  entity_id: binary_sensor.fenster_und_turkontakt, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_kueche,      entity_id: binary_sensor.kuche_fenster_und_turkontakt, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_wc,          entity_id: binary_sensor.fensterkontakt_2, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_bad_og,      entity_id: binary_sensor.fensterkontakt, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_spielzimmer, entity_id: binary_sensor.fenster_und_turkontakt_spielzimmer, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_korbinian,   entity_id: binary_sensor.fensterkontakt_3, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_tobias,      entity_id: binary_sensor.fensterkontakt_4, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_velux,       entity_id: binary_sensor.fensterkontakt_velux, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_mitte,       entity_id: binary_sensor.fensterkontakt_mitte, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: c_bad_dg,      entity_id: binary_sensor.shutter_contact, internal: true, on_state: {then: [script.execute: refresh]}}
+
+  # Auto
+  - {platform: homeassistant, id: car_doors,   entity_id: binary_sensor.skoda_enyaq_turen_offen, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: car_windows, entity_id: binary_sensor.skoda_enyaq_fenster, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: car_trunk,   entity_id: binary_sensor.skoda_enyaq_kofferraum, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: car_hood,    entity_id: binary_sensor.skoda_enyaq_motorhaube, internal: true, on_state: {then: [script.execute: refresh]}}
+  - {platform: homeassistant, id: car_plug,    entity_id: binary_sensor.skoda_enyaq_ladekabel, internal: true, on_state: {then: [script.execute: refresh]}}
+
+  # Waschmaschine
+  - {platform: homeassistant, id: wm_connected, entity_id: binary_sensor.siemens_wm14ur5em2_68a40e98d48e_connected, internal: true, on_state: {then: [script.execute: refresh]}}
+
+  # Taster (schalten +3V3, daher Pulldown, nicht invertiert). Im Moment: Refresh erzwingen.
+  - platform: gpio
+    id: btn_1
+    name: Taste 1
+    pin:
+      number: GPIO12
+      mode: {input: true, pulldown: true}
+      ignore_strapping_warning: true # Taster beim Booten nicht gedrückt halten!
+    filters: [delayed_on: 20ms]
+    on_press: [component.update: epd]
+  - platform: gpio
+    id: btn_2
+    name: Taste 2
+    pin:
+      number: GPIO14
+      mode: {input: true, pulldown: true}
+    filters: [delayed_on: 20ms]
+    on_press: [component.update: epd]
+  - platform: gpio
+    id: btn_3
+    name: Taste 3
+    pin:
+      number: GPIO13
+      mode: {input: true, pulldown: true}
+    filters: [delayed_on: 20ms]
+    on_press: [component.update: epd]
+  - platform: gpio
+    id: btn_4
+    name: Taste 4
+    pin:
+      number: GPIO15
+      mode: {input: true, pulldown: true}
+      ignore_strapping_warning: true # Strapping-Pin, im Betrieb unkritisch
+    filters: [delayed_on: 20ms]
+    on_press: [component.update: epd]
