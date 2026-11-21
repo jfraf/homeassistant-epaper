@@ -152,7 +152,7 @@ function tx(x, y, content, { size = 12, bold = false, align = 'TL', inv = false,
   else if (v === 'B') top = y - size;
   else if (v === 'Base') top = y - 0.84 * size;
   const pos = hz === 'R' ? `right:${W - x}px` : `left:${x}px`;
-  const style = `top:${top}px; ${pos}; font-size:${size}px; line-height:1; white-space:nowrap; font-weight:${bold ? 700 : 400}; font-family:${bold ? 'Roboto' : '"DejaVu Sans"'}, sans-serif; ${inv ? 'color:var(--paper);' : ''} ${tr ? `transform:${tr};` : ''}`;
+  const style = `top:${top}px; ${pos}; font-size:${size}px; line-height:1; white-space:nowrap; font-weight:${bold ? 700 : 400}; font-family:${bold ? 'Roboto' : "'DejaVu Sans'"}, sans-serif; ${inv ? 'color:var(--paper);' : ''} ${tr ? `transform:${tr};` : ''}`;
   return `<div class="abs" style="${style}">${icon ? `<i class="mdi mdi-${content}"></i>` : content}</div>`;
 }
 const box_ = (x, y, w, h, filled) => `<div class="abs" style="left:${x}px; top:${y}px; width:${w}px; height:${h}px; ${filled ? 'background:var(--ink);' : 'border:1px solid var(--ink);'}"></div>`;
