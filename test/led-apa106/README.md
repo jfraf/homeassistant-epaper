@@ -1,15 +1,15 @@
 # LED-Test APA106-F8 / P9823 (Arduino Nano)
 
-Interaktiver Test einer einzelnen LED: Farben, Helligkeit, Farbreihenfolge.
+Interaktiver Test von zwei LEDs in Reihe: Farben, Helligkeit, Farbreihenfolge, Kette.
 
 ## Verkabelung
 
-| LED-Bein | Nano |
-|---|---|
-| VDD (+5 V) | 5V |
-| GND | GND |
-| DIN | D6 |
-| DOUT | frei |
+| LED-Bein | LED 1 | LED 2 |
+|---|---|---|
+| VDD (+5 V) | Nano 5V | Nano 5V |
+| GND | Nano GND | Nano GND |
+| DIN | Nano D6 | DOUT von LED 1 |
+| DOUT | → DIN von LED 2 | frei |
 
 Bein-Erkennung (Anschlussreihenfolge 1–4: DIN, VDD, GND, DOUT): Das **längste Bein ist GND**, das zweitlängste VDD.
 Das kurze Bein neben VDD ist DIN, das kurze neben GND ist DOUT. Vor dem Einschalten mit dem Datenblatt des Händlers
@@ -34,5 +34,9 @@ Nano-Klone mit altem Bootloader (Upload-Fehler `not in sync`): FQBN `arduino:avr
 ## Bedienung
 
 Im Monitor Befehle eingeben und mit Enter abschicken (`?` zeigt die Hilfe):
-`rot`, `gruen`, `blau`, `weiss`, `warmweiss` …, `c 255 80 0`, `h 10`, `+`, `-`, `demo`, `regenbogen`, `fade`,
-`blink`, `order`, `gamma`, `aus`.
+
+- `led 1`, `led 2`, `led alle`: Ziel für Farb- und Helligkeitsbefehle
+- `rot`, `gruen`, `blau`, `weiss`, `warmweiss` …, `c 255 80 0`, `h 10`, `+`, `-`, `aus`
+- `demo`, `regenbogen`, `fade`, `blink`, `wechsel` (abwechselnd), `order`, `gamma`
+
+Anzahl der LEDs: `NUM_LEDS` im Sketch.
