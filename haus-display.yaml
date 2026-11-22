@@ -554,7 +554,9 @@ binary_sensor:
     filters: [delayed_on: 20ms]
     on_press: [script.execute: draw_safe]
 
-# 2 × APA106-F8 / P9823 in Reihe an GPIO27 (Data -> DIN LED 1, DOUT LED 1 -> DIN LED 2), Versorgung 5 V
+# 2 × APA106-F8 / P9823 in Reihe an GPIO27, Versorgung 5 V.
+# Benennung wie die Tasten (von hinten gesehen links = 1): "LED 1" ist die zweite LED der Kette (Index 1),
+# "LED 2" die erste (Index 0, DIN am GPIO27).
 light:
   - platform: esp32_rmt_led_strip
     id: led_strip
@@ -573,8 +575,8 @@ light:
     restore_mode: ALWAYS_OFF
     segments:
       - id: led_strip
-        from: 0
-        to: 0
+        from: 1
+        to: 1
     effects:
       - pulse:
       - strobe:
@@ -585,8 +587,8 @@ light:
     restore_mode: ALWAYS_OFF
     segments:
       - id: led_strip
-        from: 1
-        to: 1
+        from: 0
+        to: 0
     effects:
       - pulse:
       - strobe:
