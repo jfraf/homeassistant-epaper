@@ -1,6 +1,7 @@
 # Haus-Display: Übersichtsseite für Home Assistant auf dem ehemaligen FRITZ!Box-Anruflisten-Display
 # Hardware: LOLIN D32 (ESP32) + Waveshare 4.2" e-Paper V1 (UC8176, 400x300 s/w), hochkant montiert
 #           4 Taster nach +3V3: Taste 1-4 = GPIO 12 / 14 / 13 / 15 (am Gehäuse von links nach rechts)
+#           2 × RGB-LED APA106-F8 / P9823 an GPIO27 (in Reihe)
 #
 # Aktualisierung:
 #   - sofort (2 s entprellt): Fenster/Türen, Garage, Autotüren/-fenster, Ladekabel/-status/-modus,
@@ -552,3 +553,40 @@ binary_sensor:
       ignore_strapping_warning: true # Strapping-Pin, im Betrieb unkritisch
     filters: [delayed_on: 20ms]
     on_press: [script.execute: draw_safe]
+
+# 2 × APA106-F8 / P9823 in Reihe an GPIO27 (Data -> DIN LED 1, DOUT LED 1 -> DIN LED 2), Versorgung 5 V
+light:
+  - platform: esp32_rmt_led_strip
+    id: led_strip
+    name: LEDs
+    internal: true
+    pin: GPIO27
+    num_leds: 2
+    chipset: APA106
+    rgb_order: RGB
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+  - platform: partition
+    id: led_1
+    name: LED 1
+    default_transition_length: 0.5s
+    restore_mode: ALWAYS_OFF
+    segments:
+      - id: led_strip
+        from: 0
+        to: 0
+    effects:
+      - pulse:
+      - strobe:
+  - platform: partition
+    id: led_2
+    name: LED 2
+    default_transition_length: 0.5s
+    restore_mode: ALWAYS_OFF
+    segments:
+      - id: led_strip
+        from: 1
+        to: 1
+    effects:
+      - pulse:
+      - strobe:

@@ -16,6 +16,7 @@ E-Paper-Dashboard für Home Assistant auf Basis von ESPHome. Die Hardware stammt
 | Taste 2 | 14 |
 | Taste 3 | 13 |
 | Taste 4 (rechts) | 15 (Strapping-Pin) |
+| 2 × LED APA106-F8 / P9823 (Data) | 27 (Versorgung 5 V) |
 
 ## Konfigurationen
 
@@ -25,6 +26,8 @@ E-Paper-Dashboard für Home Assistant auf Basis von ESPHome. Die Hardware stammt
   - Waschmaschine (Programm, Fortschritt, Restlaufzeit; nur wenn erreichbar)
   - Auto: Ladestand, Reichweite, Ladelimit, Lademodus (openWB), Ladeleistung
   - PV: aktuelle Leistung, Ertrag heute, Restprognose (Forecast.Solar, 2 Flächen) bzw. Prognose morgen
+  - zwei RGB-LEDs als Lichter `LED 1` / `LED 2` in Home Assistant
+- `test/led-apa106/`: Arduino-Nano-Testprogramm für die LEDs
 - `mockup/dashboard.html`: HTML-Skizze der Übersichtsseite
 
 Für das ESPHome-Dashboard muss `haus_display.h` neben der YAML liegen. Schrift: Arimo (Google Fonts), normal und fett.
