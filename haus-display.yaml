@@ -562,7 +562,7 @@ light:
     internal: true
     pin: GPIO27
     num_leds: 2
-    chipset: APA106
+    chipset: WS2812 # gleiches Timing wie im erfolgreichen Nano-Test (800 kHz)
     rgb_order: RGB
     default_transition_length: 0s
     restore_mode: ALWAYS_OFF
