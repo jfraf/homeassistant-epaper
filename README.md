@@ -28,6 +28,7 @@ E-Paper-Dashboard für Home Assistant auf Basis von ESPHome. Die Hardware stammt
   - PV: aktuelle Leistung, Ertrag heute, Restprognose (Forecast.Solar, 2 Flächen) bzw. Prognose morgen
   - zwei RGB-LEDs als Lichter `LED 1` / `LED 2` in Home Assistant
 - `test/led-apa106/`: Arduino-Nano-Testprogramm für die LEDs
+- `test/epaper-partial.yaml`: Teilrefresh-Test mit `epaper_spi` (parkghost/esphome-epaper, Modell `gdew042m01`); lokal braucht `test/` einen Symlink `secrets.yaml -> ../secrets.yaml`
 - `mockup/dashboard.html`: HTML-Skizze der Übersichtsseite
 
 Für das ESPHome-Dashboard muss `haus_display.h` neben der YAML liegen. Schrift: Arimo (Google Fonts), normal und fett.

@@ -1,0 +1,206 @@
+# Teilrefresh-Test für das Haus-Display (Waveshare 4.2" V1, UC8176) mit epaper_spi von parkghost.
+# Gleicher Gerätename und gleiche Schlüssel wie haus-display.yaml: per OTA hin- und zurückflashen.
+#
+# Tasten (von hinten gesehen links = 1):
+#   Taste 1  ein Update (Zähler +1, Balken wandert)
+#   Taste 2  großen Block invertieren + Update (Härtetest für Geisterbilder)
+#   Taste 3  Dauertest an/aus: alle 5 s ein Update, jedes 3. mit Block-Invertierung
+# Jedes ${full_every}. Update ist ein Voll-Refresh, dazwischen Teilrefreshes.
+# Im Log steht nach jedem Update "Display update took … ms".
+
+substitutions:
+  name: haus-display
+  friendly_name: Haus-Display
+  full_every: "10"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    priority: -100
+    then:
+      - delay: 3s
+      - component.update: epd
+
+esp32:
+  board: lolin_d32
+  framework:
+    type: esp-idf
+
+external_components:
+  - source: github://parkghost/esphome-epaper@cf145a72d835a5ef0b66576a5945bc7f16f232c0
+    components: [epaper_spi]
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    encryption:
+      key: !secret api_encryption_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: ${friendly_name} Fallback
+
+captive_portal:
+
+time:
+  - platform: homeassistant
+    id: ha_time
+
+globals:
+  - id: n_updates   # Anzahl gezeichneter Frames seit dem Start
+    type: int
+    initial_value: '0'
+  - id: inverted    # Zustand des Invertier-Blocks
+    type: bool
+    initial_value: 'false'
+  - id: auto_test
+    type: bool
+    initial_value: 'false'
+
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+
+display:
+  - platform: epaper_spi
+    id: epd
+    model: gdew042m01
+    cs_pin:
+      number: GPIO5
+      ignore_strapping_warning: true
+    dc_pin: GPIO17
+    reset_pin: GPIO16
+    busy_pin: GPIO4   # Polarität kennt der Treiber, nicht invertieren
+    rotation: 270
+    full_update_every: ${full_every}
+    update_interval: never
+    lambda: |-
+      // epaper_spi: Farben WYSIWYG, Schwarz = Color(0,0,0)
+      const auto BLACK = Color(0, 0, 0);
+      const auto WHITE = Color(255, 255, 255);
+      const int W = 300;
+      const int n = id(n_updates)++;
+      const bool full = (n % ${full_every}) == 0;
+
+      it.fill(WHITE);
+
+      // Kopfzeile
+      it.filled_rectangle(0, 0, W, 30, BLACK);
+      it.print(8, 15, id(f_16b), WHITE, TextAlign::CENTER_LEFT, "Teilrefresh-Test");
+      auto t = id(ha_time).now();
+      if (t.is_valid())
+        it.strftime(W - 8, 15, id(f_16b), WHITE, TextAlign::CENTER_RIGHT, "%H:%M:%S", t);
+
+      // Großer Zähler
+      it.printf(W / 2, 95, id(f_big), BLACK, TextAlign::CENTER, "%d", n);
+      it.printf(W / 2, 140, id(f_15), BLACK, TextAlign::CENTER, "%s  ·  nächster Voll-Refresh in %d",
+                full ? "VOLL-Refresh" : "Teilrefresh", ${full_every} - (n % ${full_every}));
+
+      // Wandernder Balken (lokale Änderung)
+      it.rectangle(10, 160, 280, 20, BLACK);
+      const int pos = (n * 23) % 250;
+      it.filled_rectangle(12 + pos, 162, 26, 16, BLACK);
+
+      // Statische Referenz: Schachbrett 4 px und feine Linien (dürfen sich nie verändern)
+      for (int y = 0; y < 64; y += 4)
+        for (int x = 0; x < 128; x += 4)
+          if (((x + y) / 4) % 2 == 0) it.filled_rectangle(10 + x, 195 + y, 4, 4, BLACK);
+      for (int i = 0; i < 8; i++) it.horizontal_line(150, 195 + i * 9, 140, BLACK);
+
+      // Invertier-Block (Härtetest)
+      const auto bg = id(inverted) ? BLACK : WHITE;
+      const auto fg = id(inverted) ? WHITE : BLACK;
+      it.filled_rectangle(10, 270, 280, 80, bg);
+      it.rectangle(10, 270, 280, 80, BLACK);
+      it.print(W / 2, 300, id(f_22b), fg, TextAlign::CENTER, id(inverted) ? "invertiert" : "normal");
+      it.print(W / 2, 328, id(f_12), fg, TextAlign::CENTER, "Kleiner Text 12 px: Ladelimit 80 % · 3,4 kWh");
+
+      // Fußzeile
+      it.print(W / 2, 372, id(f_12), BLACK, TextAlign::CENTER, "T1 Update · T2 Block invertieren");
+      it.print(W / 2, 388, id(f_12), BLACK, TextAlign::CENTER,
+               id(auto_test) ? "T3 Dauertest: AN (alle 5 s)" : "T3 Dauertest: aus");
+
+      ESP_LOGI("test", "Frame %d (%s)", n, full ? "voll" : "teil");
+
+font:
+  - file: gfonts://Arimo@700
+    id: f_16b
+    size: 16
+    glyphsets: [GF_Latin_Core]
+    ignore_missing_glyphs: true
+  - file: gfonts://Arimo@700
+    id: f_22b
+    size: 22
+    glyphsets: [GF_Latin_Core]
+    ignore_missing_glyphs: true
+  - file: gfonts://Arimo@700
+    id: f_big
+    size: 72
+    glyphs: "0123456789"
+  - file: gfonts://Arimo@400
+    id: f_15
+    size: 15
+    glyphsets: [GF_Latin_Core]
+    ignore_missing_glyphs: true
+  - file: gfonts://Arimo@400
+    id: f_12
+    size: 12
+    glyphsets: [GF_Latin_Core]
+    ignore_missing_glyphs: true
+
+interval:
+  - interval: 5s
+    then:
+      - if:
+          condition:
+            lambda: return id(auto_test);
+          then:
+            - lambda: if (id(n_updates) % 3 == 2) id(inverted) = !id(inverted);
+            - component.update: epd
+
+binary_sensor:
+  - platform: gpio
+    id: btn_1
+    name: Taste 1
+    pin:
+      number: GPIO12
+      mode: {input: true, pulldown: true}
+      ignore_strapping_warning: true # Taster beim Booten nicht gedrückt halten!
+    filters: [delayed_on: 20ms]
+    on_press: [component.update: epd]
+  - platform: gpio
+    id: btn_2
+    name: Taste 2
+    pin:
+      number: GPIO14
+      mode: {input: true, pulldown: true}
+    filters: [delayed_on: 20ms]
+    on_press:
+      - lambda: id(inverted) = !id(inverted);
+      - component.update: epd
+  - platform: gpio
+    id: btn_3
+    name: Taste 3
+    pin:
+      number: GPIO13
+      mode: {input: true, pulldown: true}
+    filters: [delayed_on: 20ms]
+    on_press:
+      - lambda: id(auto_test) = !id(auto_test);
+      - component.update: epd
+  - platform: gpio
+    id: btn_4
+    name: Taste 4
+    pin:
+      number: GPIO15
+      mode: {input: true, pulldown: true}
+      ignore_strapping_warning: true
+    filters: [delayed_on: 20ms]
