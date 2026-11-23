@@ -229,6 +229,10 @@ void EPaperBase::process_state_() {
       this->set_state_(EPaperState::POWER_OFF);
       break;
     case EPaperState::POWER_OFF:
+      if (!this->before_power_off_()) {
+        this->set_state_(EPaperState::POWER_OFF);
+        return;
+      }
       this->power_off();
       this->set_state_(EPaperState::DEEP_SLEEP);
       break;

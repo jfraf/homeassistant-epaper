@@ -24,6 +24,10 @@ void EPaperUC8176::setup() {
 
 bool EPaperUC8176::initialise(bool partial) {
   this->partial_ = partial;
+  this->passes_left_ = partial ? this->passes_ - 1 : 0;
+  this->resend_ = false;
+  this->held_ = false;
+  this->current_data_index_ = 0;
   if (!EPaperBase::initialise(partial)) {  // declarative full init (panel/resolution/VCOM)
     return false;
   }
@@ -38,32 +42,78 @@ bool EPaperUC8176::initialise(bool partial) {
   return true;
 }
 
+void EPaperUC8176::compute_window_() {
+  this->win_x_ = 0;
+  this->win_y_ = 0;
+  this->win_w_ = this->row_width_;
+  this->win_h_ = this->height_;
+  if (!this->partial_ || !this->windowed_ || this->flash_ || this->old_data_ == nullptr)
+    return;
+  // umschließendes Rechteck aller geänderten Bytes
+  uint16_t x0 = this->row_width_, x1 = 0, y0 = this->height_, y1 = 0;
+  for (uint16_t y = 0; y < this->height_; y++) {
+    const uint8_t *o = &this->old_data_[(size_t) y * this->row_width_];
+    const uint8_t *n = &this->buffer_[(size_t) y * this->row_width_];
+    for (uint16_t x = 0; x < this->row_width_; x++) {
+      if (o[x] != n[x]) {
+        x0 = std::min(x0, x);
+        x1 = std::max(x1, x);
+        y0 = std::min(y0, y);
+        y1 = y;
+      }
+    }
+  }
+  if (x1 < x0)
+    return;  // nichts geändert: ganzes Bild
+  this->win_x_ = x0;
+  this->win_y_ = y0;
+  this->win_w_ = x1 - x0 + 1;
+  this->win_h_ = y1 - y0 + 1;
+}
+
 bool HOT EPaperUC8176::transfer_data() {
   const uint32_t start_time = millis();
-  const size_t frame = this->buffer_length_;
   uint8_t bytes_to_send[MAX_TRANSFER_SIZE];
 
-  // Partial: enter partial mode with a full-screen window before the data.
-  if (this->partial_ && this->current_data_index_ == 0) {
-    const uint32_t xe = (this->width_ - 1) | 0x0007;
-    const uint16_t ye = this->height_ - 1;
-    this->command(0x91);  // PARTIAL IN
-    this->cmd_data(0x90, {0x00, 0x00, (uint8_t) (xe / 256), (uint8_t) (xe % 256), 0x00, 0x00, (uint8_t) (ye / 256),
-                          (uint8_t) (ye % 256), 0x01});
+  if (this->current_data_index_ == 0 && !this->resend_) {
+    this->compute_window_();
+    if (this->partial_) {
+      // Partial: enter partial mode and set the window before the data.
+      const uint16_t xs = this->win_x_ * 8;
+      const uint16_t xe = (this->win_x_ + this->win_w_) * 8 - 1;
+      const uint16_t ys = this->win_y_;
+      const uint16_t ye = this->win_y_ + this->win_h_ - 1;
+      this->command(0x91);  // PARTIAL IN
+      this->cmd_data(0x90, {(uint8_t) (xs >> 8), (uint8_t) xs, (uint8_t) (xe >> 8), (uint8_t) xe, (uint8_t) (ys >> 8),
+                            (uint8_t) ys, (uint8_t) (ye >> 8), (uint8_t) ye, 0x01});
+      ESP_LOGD("epaper_spi.uc8176", "Partial window x %u-%u, y %u-%u%s", xs, xe, ys, ye, this->flash_ ? " (flash)" : "");
+    }
   }
+  const size_t frame = (size_t) this->win_w_ * this->win_h_;
+  // Position im Fensterstrom -> Offset im Bildpuffer, Länge bis Zeilenende
+  auto locate = [this](size_t i, size_t &off, size_t &row_left) {
+    const size_t row = i / this->win_w_, col = i % this->win_w_;
+    off = (size_t) (this->win_y_ + row) * this->row_width_ + this->win_x_ + col;
+    row_left = this->win_w_ - col;
+  };
 
-  // Phase 1: OLD data (0x10). Full -> 0xFF, partial -> previous frame.
+  // Phase 1: OLD data (0x10). Full -> 0xFF, partial -> previous frame, flash -> negative of the new frame.
   if (this->current_data_index_ < frame) {
     if (this->current_data_index_ == 0) {
       this->command(0x10);
     }
     this->start_data_();
     while (this->current_data_index_ < frame) {
-      const size_t n = std::min(MAX_TRANSFER_SIZE, frame - this->current_data_index_);
-      if (this->partial_) {
-        std::copy_n(&this->old_data_[this->current_data_index_], n, bytes_to_send);
-      } else {
+      size_t off, row_left;
+      locate(this->current_data_index_, off, row_left);
+      const size_t n = std::min(MAX_TRANSFER_SIZE, row_left);
+      if (!this->partial_) {
         std::fill_n(bytes_to_send, n, (uint8_t) 0xFF);
+      } else if (this->flash_ && !this->resend_) {
+        for (size_t i = 0; i < n; i++)
+          bytes_to_send[i] = ~this->buffer_[off + i];
+      } else {
+        std::copy_n(&this->old_data_[off], n, bytes_to_send);
       }
       this->write_array(bytes_to_send, n);
       this->current_data_index_ += n;
@@ -82,8 +132,9 @@ bool HOT EPaperUC8176::transfer_data() {
     }
     this->start_data_();
     while (this->current_data_index_ < 2 * frame) {
-      const size_t off = this->current_data_index_ - frame;
-      const size_t n = std::min(MAX_TRANSFER_SIZE, 2 * frame - this->current_data_index_);
+      size_t off, row_left;
+      locate(this->current_data_index_ - frame, off, row_left);
+      const size_t n = std::min(MAX_TRANSFER_SIZE, row_left);
       for (size_t i = 0; i < n; i++) {
         const uint8_t b = this->buffer_[off + i];
         bytes_to_send[i] = b;
@@ -101,6 +152,30 @@ bool HOT EPaperUC8176::transfer_data() {
   }
 
   this->current_data_index_ = 0;
+  return true;
+}
+
+// Nach Ende eines Teilrefreshs: weitere Durchgänge anhängen bzw. Spannung halten.
+bool EPaperUC8176::before_power_off_() {
+  if (!this->partial_)
+    return true;
+  if (this->passes_left_ > 0) {
+    // altes Bild == neues Bild: alle Pixel im Fenster werden nur noch in ihre Sollfarbe nachgetrieben
+    this->resend_ = true;
+    const bool done = this->transfer_data();
+    if (!done)
+      return false;
+    this->resend_ = false;
+    this->passes_left_--;
+    this->command(0x12);  // DISPLAY REFRESH
+    this->next_delay_ = 2;  // BUSY braucht min. 200 µs
+    return false;
+  }
+  if (this->hold_ms_ > 0 && !this->held_) {
+    this->held_ = true;
+    this->next_delay_ = this->hold_ms_;
+    return false;
+  }
   return true;
 }
 

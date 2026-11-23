@@ -2,31 +2,31 @@
 # (Kopie von parkghost/esphome-epaper in components/ dieses Repos, ergänzt um Waveshare-V1-Modelle
 # und eine zur Laufzeit einstellbare Teilrefresh-Waveform).
 #
-# Die Waveform-Parameter werden aus einer Liste von Kombinationen (partial_combos.h) umgeschaltet,
-# die aktuelle Nummer steht groß oben links. Nummer merken, fertig.
+# Oben im Bild: Kombi-Nummer (Waveform-Parameter aus partial_combos.h) und Refresh-Modus (Buchstabe).
 #   Kombi 0 = Werte aus den Substitutionen t1..t6, vcom_dc, pll (per "esphome -s t3 60 ..." änderbar)
 #
 # Tasten (von hinten gesehen links = 1):
-#   Taste 1  ein Teilrefresh (Zähler +1, Balken wandert)
+#   Taste 1  ein Teilrefresh, kleine Änderung (Zähler +1, Balken wandert)
 #   Taste 2  großen Block invertieren + Teilrefresh (Härtetest für Geisterbilder)
-#   Taste 3  automatischer Durchlauf an/aus: je Kombi 1 Voll-Refresh, dann 6 Teilrefreshes im
-#            Abstand von 8 s (jeder zweite mit Block-Invertierung), dann die nächste Kombi
-#   Taste 4  nächste Kombi von Hand (mit Voll-Refresh als sauberer Ausgangspunkt)
-# Ohne Durchlauf ist jedes ${full_every}. Update ein Voll-Refresh.
-# Im Log: "Partial waveform: …" beim Umschalten und "Display update took … ms" nach jedem Update.
+#   Taste 3  nächster Refresh-Modus (mit Voll-Refresh als sauberer Ausgangspunkt):
+#            A einfach · B doppelt · C dreifach · D Einmal-Blinken · E Blinken + doppelt ·
+#            F Fenster (nur geänderter Bereich) · G Fenster doppelt · H Spannung 2 s halten
+#   Taste 4  nächste Kombi (mit Voll-Refresh)
+# Jedes ${full_every}. Update ist ein Voll-Refresh.
+# Im Log: "Partial waveform: …", "Partial window …" und "Display update took … ms".
 
 substitutions:
   name: haus-display
   friendly_name: Haus-Display
-  full_every: "10"
+  full_every: "15"
   model: waveshare-4.2in-v1-tune
   # Kombi 0
   t1: "60"
   t2: "60"
   t3: "60"
   t4: "60"
-  t5: "10"
-  t6: "10"
+  t5: "20"
+  t6: "20"
   vcom_dc: "0x12"
   pll: "0x3A"
 
@@ -86,10 +86,7 @@ globals:
   - id: inverted    # Zustand des Invertier-Blocks
     type: bool
     initial_value: 'false'
-  - id: sweep_on
-    type: bool
-    initial_value: 'false'
-  - id: sweep_step
+  - id: mode        # aktueller Refresh-Modus
     type: int
     initial_value: '0'
   - id: combo       # aktuelle Kombi
@@ -102,11 +99,12 @@ script:
       - lambda: |-
           const auto c = hd_test::combo(id(combo), ${t1}, ${t2}, ${t3}, ${t4}, ${t5}, ${t6}, ${vcom_dc}, ${pll});
           id(epd).set_partial_waveform(c.t[0], c.t[1], c.t[2], c.t[3], c.t[4], c.t[5], c.vcom, c.pll);
-  - id: next_combo
+          const auto &m = hd_test::MODES[id(mode)];
+          id(epd).set_partial_options(m.passes, m.flash, m.windowed, m.hold_ms);
+          ESP_LOGI("test", "Kombi %d, Modus %s", id(combo), m.name);
+  - id: restart_clean   # nach Kombi-/Moduswechsel: Voll-Refresh als Ausgangspunkt
     then:
       - lambda: |-
-          id(combo) = (id(combo) + 1) % hd_test::NUM_COMBOS;
-          id(sweep_step) = 0;
           id(epd).force_full_update();
           id(upd_cnt) = 0;
       - script.execute: apply_combo
@@ -143,6 +141,8 @@ display:
 
       // Kopfzeile: Kombi-Nummer groß, Parameter klein
       it.filled_rectangle(0, 0, W, 44, BLACK);
+      it.print(W - 8, 22, id(f_22b), WHITE, TextAlign::CENTER_RIGHT,
+               std::string(hd_test::MODES[id(mode)].name).substr(0, 1).c_str());
       it.printf(8, 22, id(f_big_s), WHITE, TextAlign::CENTER_LEFT, "%d", id(combo));
       it.printf(64, 13, id(f_12), WHITE, TextAlign::CENTER_LEFT, "T %u/%u/%u/%u/%u/%u",
                 c.t[0], c.t[1], c.t[2], c.t[3], c.t[4], c.t[5]);
@@ -150,14 +150,11 @@ display:
       const float secs = (c.t[0] + c.t[1] + c.t[2] + c.t[3]) / (c.pll == 0x3C ? 50.0f : 100.0f);
       it.printf(64, 31, id(f_12), WHITE, TextAlign::CENTER_LEFT, "VCOM 0x%02X · PLL 0x%02X · %.1f s",
                 c.vcom, c.pll, secs);
-      it.print(W - 8, 13, id(f_12), WHITE, TextAlign::CENTER_RIGHT, id(sweep_on) ? "Durchlauf" : "manuell");
-      auto t = id(ha_time).now();
-      if (t.is_valid())
-        it.strftime(W - 8, 31, id(f_12), WHITE, TextAlign::CENTER_RIGHT, "%H:%M:%S", t);
 
       // Großer Zähler
       it.printf(W / 2, 100, id(f_big), BLACK, TextAlign::CENTER, "%d", n);
-      it.print(W / 2, 145, id(f_15), BLACK, TextAlign::CENTER, full ? "VOLL-Refresh" : "Teilrefresh");
+      it.printf(W / 2, 145, id(f_15), BLACK, TextAlign::CENTER, "%s",
+                full ? "VOLL-Refresh" : hd_test::MODES[id(mode)].name);
 
       // Wandernder Balken (lokale Änderung)
       it.rectangle(10, 162, 280, 20, BLACK);
@@ -180,9 +177,10 @@ display:
 
       // Fußzeile
       it.print(W / 2, 372, id(f_12), BLACK, TextAlign::CENTER, "T1 Update · T2 Block invertieren");
-      it.print(W / 2, 388, id(f_12), BLACK, TextAlign::CENTER, "T3 Durchlauf an/aus · T4 nächste Kombi");
+      it.print(W / 2, 388, id(f_12), BLACK, TextAlign::CENTER, "T3 nächster Modus · T4 nächste Kombi");
 
-      ESP_LOGI("test", "Frame %d (%s), Kombi %d", n, full ? "voll" : "teil", id(combo));
+      ESP_LOGI("test", "Frame %d (%s), Kombi %d, Modus %s", n, full ? "voll" : "teil", id(combo),
+               hd_test::MODES[id(mode)].name);
 
 font:
   - file: gfonts://Arimo@700
@@ -209,24 +207,6 @@ font:
     glyphsets: [GF_Latin_Core]
     ignore_missing_glyphs: true
 
-interval:
-  # Durchlauf: nach 6 Teilrefreshes nächste Kombi (mit Voll-Refresh)
-  - interval: 8s
-    then:
-      - if:
-          condition:
-            lambda: return id(sweep_on);
-          then:
-            - if:
-                condition:
-                  lambda: return id(sweep_step) >= 6;
-                then:
-                  - script.execute: next_combo
-                else:
-                  - lambda: |-
-                      id(sweep_step)++;
-                      if (id(sweep_step) % 2 == 0) id(inverted) = !id(inverted);
-                  - component.update: epd
 
 binary_sensor:
   - platform: gpio
@@ -256,10 +236,8 @@ binary_sensor:
       mode: {input: true, pulldown: true}
     filters: [delayed_on: 20ms]
     on_press:
-      - lambda: |-
-          id(sweep_on) = !id(sweep_on);
-          id(sweep_step) = 6;  // beim Start sofort mit der nächsten Kombi beginnen
-      - component.update: epd
+      - lambda: id(mode) = (id(mode) + 1) % hd_test::NUM_MODES;
+      - script.execute: restart_clean
   - platform: gpio
     id: btn_4
     name: Taste 4
@@ -268,4 +246,6 @@ binary_sensor:
       mode: {input: true, pulldown: true}
       ignore_strapping_warning: true
     filters: [delayed_on: 20ms]
-    on_press: [script.execute: next_combo]
+    on_press:
+      - lambda: id(combo) = (id(combo) + 1) % hd_test::NUM_COMBOS;
+      - script.execute: restart_clean

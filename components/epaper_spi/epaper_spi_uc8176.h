@@ -37,6 +37,18 @@ class EPaperUC8176 : public EPaperBase {
                             uint8_t pll);
   // Nächstes Update als Voll-Refresh ausführen.
   void force_full_update() { this->update_count_ = 0; }
+  // Optionen für Teilrefreshes:
+  //   passes    Anzahl Durchgänge (1 = normal; weitere Durchgänge treiben alle Pixel nochmals in ihre Sollfarbe)
+  //   flash     "Einmal-Blinken": als altes Bild wird das Negativ gesendet, jeder Pixel wird komplett neu
+  //             geschrieben (Bildschirm invertiert genau einmal)
+  //   windowed  nur das umschließende Rechteck der geänderten Pixel ansteuern
+  //   hold_ms   Treiberspannung nach dem letzten Durchgang noch so lange anlassen
+  void set_partial_options(uint8_t passes, bool flash, bool windowed, uint16_t hold_ms) {
+    this->passes_ = passes < 1 ? 1 : passes;
+    this->flash_ = flash;
+    this->windowed_ = windowed;
+    this->hold_ms_ = hold_ms;
+  }
 
  protected:
   void setup() override;
@@ -46,12 +58,23 @@ class EPaperUC8176 : public EPaperBase {
   void refresh_screen(bool partial) override;
   void power_off() override;
   void deep_sleep() override;
+  bool before_power_off_() override;
+  void compute_window_();
 
   const uint8_t *partial_sequence_;
   size_t partial_sequence_length_;
   std::vector<uint8_t> partial_override_;
   uint8_t *old_data_{nullptr};
   bool partial_{false};
+  uint8_t passes_{1};
+  bool flash_{false};
+  bool windowed_{false};
+  uint16_t hold_ms_{0};
+  uint8_t passes_left_{0};
+  bool resend_{false};  // weiterer Durchgang im selben Fenster
+  bool held_{false};
+  // aktuelles Fenster in Bytes (x) bzw. Zeilen (y)
+  uint16_t win_x_{0}, win_y_{0}, win_w_{0}, win_h_{0};
 };
 
 }  // namespace esphome::epaper_spi

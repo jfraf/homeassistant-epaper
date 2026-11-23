@@ -38,4 +38,25 @@ inline Combo combo(int i, int t1, int t2, int t3, int t4, int t5, int t6, int vc
   return COMBOS[i - 1];
 }
 
+// Refresh-Modi für Teilrefreshes (Taste 3)
+struct Mode {
+  const char *name;
+  uint8_t passes;    // Anzahl Durchgänge
+  bool flash;        // "Einmal-Blinken": jeder Pixel wird komplett neu geschrieben
+  bool windowed;     // nur das Rechteck um die geänderten Pixel ansteuern
+  uint16_t hold_ms;  // Spannung nach dem Refresh noch halten
+};
+
+static const Mode MODES[] = {
+    {"A einfach", 1, false, false, 0},
+    {"B doppelt", 2, false, false, 0},
+    {"C dreifach", 3, false, false, 0},
+    {"D Einmal-Blinken", 1, true, false, 0},
+    {"E Blinken + doppelt", 2, true, false, 0},
+    {"F Fenster", 1, false, true, 0},
+    {"G Fenster doppelt", 2, false, true, 0},
+    {"H halten 2 s", 1, false, false, 2000},
+};
+static const int NUM_MODES = sizeof(MODES) / sizeof(MODES[0]);
+
 }  // namespace hd_test

@@ -159,6 +159,10 @@ class EPaperBase : public Display,
    * Power the display off
    */
   virtual void power_off() = 0;
+  // Lokale Ergänzung (homeassistant-epaper): wird (nach Ende des Refreshs) vor power_off() aufgerufen.
+  // Gibt ein Treiber false zurück, wartet die Basis erneut auf BUSY (plus next_delay_) und fragt wieder.
+  // Damit kann ein Treiber weitere Durchgänge anhängen oder die Spannung noch halten.
+  virtual bool before_power_off_() { return true; }
 
   /**
    * Place the display into deep sleep
