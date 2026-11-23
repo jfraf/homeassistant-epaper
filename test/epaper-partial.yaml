@@ -8,10 +8,10 @@
 # Tasten (von hinten gesehen links = 1):
 #   Taste 1  ein Teilrefresh, kleine Änderung (Zähler +1, Balken wandert)
 #   Taste 2  großen Block invertieren + Teilrefresh (Härtetest für Geisterbilder)
-#   Taste 3  nächster Refresh-Modus (mit Voll-Refresh als sauberer Ausgangspunkt):
-#            A einfach · B doppelt · C dreifach · D Einmal-Blinken · E Blinken + doppelt ·
-#            F Fenster (nur geänderter Bereich) · G Fenster doppelt · H Spannung 2 s halten
-#            I doppelt + halten 2 s · J doppelt + halten 5 s · K halten 5 s
+#   Taste 3  automatischen Durchlauf anhalten / fortsetzen
+#            Durchlauf (läuft nach dem Start von selbst): je Modus 1 Voll-Refresh, dann 4 Teilrefreshes
+#            im Abstand von ${step_time} (jeder zweite mit Block-Invertierung), dann der nächste Modus.
+#            Modi: B doppelt · H halten 2 s · I doppelt + halten 2 s · J doppelt + halten 5 s · K halten 5 s
 #   Taste 4  nächste Kombi (mit Voll-Refresh)
 # Jedes ${full_every}. Update ist ein Voll-Refresh.
 # Im Log: "Partial waveform: …", "Partial window …" und "Display update took … ms".
@@ -20,6 +20,7 @@ substitutions:
   name: haus-display
   friendly_name: Haus-Display
   full_every: "15"
+  step_time: 15s
   model: waveshare-4.2in-v1-tune
   # Kombi 0
   t1: "60"
@@ -90,6 +91,12 @@ globals:
   - id: mode        # aktueller Refresh-Modus
     type: int
     initial_value: '0'
+  - id: auto_on     # automatischer Durchlauf durch die Modi
+    type: bool
+    initial_value: 'true'
+  - id: auto_step   # Teilrefreshes im aktuellen Modus
+    type: int
+    initial_value: '0'
   - id: combo       # aktuelle Kombi
     type: int
     initial_value: '0'
@@ -108,6 +115,7 @@ script:
       - lambda: |-
           id(epd).force_full_update();
           id(upd_cnt) = 0;
+          id(auto_step) = 0;
       - script.execute: apply_combo
       - component.update: epd
 
@@ -155,7 +163,8 @@ display:
       // Großer Zähler
       it.printf(W / 2, 100, id(f_big), BLACK, TextAlign::CENTER, "%d", n);
       it.printf(W / 2, 145, id(f_15), BLACK, TextAlign::CENTER, "%s",
-                full ? "VOLL-Refresh" : hd_test::MODES[id(mode)].name);
+                hd_test::MODES[id(mode)].name);
+      it.print(W - 10, 60, id(f_12), BLACK, TextAlign::CENTER_RIGHT, full ? "VOLL" : "teil");
 
       // Wandernder Balken (lokale Änderung)
       it.rectangle(10, 162, 280, 20, BLACK);
@@ -178,7 +187,7 @@ display:
 
       // Fußzeile
       it.print(W / 2, 372, id(f_12), BLACK, TextAlign::CENTER, "T1 Update · T2 Block invertieren");
-      it.print(W / 2, 388, id(f_12), BLACK, TextAlign::CENTER, "T3 nächster Modus · T4 nächste Kombi");
+      it.print(W / 2, 388, id(f_12), BLACK, TextAlign::CENTER, id(auto_on) ? "T3 Durchlauf anhalten · T4 nächste Kombi" : "T3 Durchlauf fortsetzen · T4 nächste Kombi");
 
       ESP_LOGI("test", "Frame %d (%s), Kombi %d, Modus %s", n, full ? "voll" : "teil", id(combo),
                hd_test::MODES[id(mode)].name);
@@ -209,6 +218,26 @@ font:
     ignore_missing_glyphs: true
 
 
+interval:
+  - interval: ${step_time}
+    startup_delay: 20s
+    then:
+      - if:
+          condition:
+            lambda: return id(auto_on);
+          then:
+            - if:
+                condition:
+                  lambda: return id(auto_step) >= 4;
+                then:
+                  - lambda: id(mode) = (id(mode) + 1) % hd_test::NUM_MODES;
+                  - script.execute: restart_clean
+                else:
+                  - lambda: |-
+                      id(auto_step)++;
+                      if (id(auto_step) % 2 == 0) id(inverted) = !id(inverted);
+                  - component.update: epd
+
 binary_sensor:
   - platform: gpio
     id: btn_1
@@ -237,8 +266,8 @@ binary_sensor:
       mode: {input: true, pulldown: true}
     filters: [delayed_on: 20ms]
     on_press:
-      - lambda: id(mode) = (id(mode) + 1) % hd_test::NUM_MODES;
-      - script.execute: restart_clean
+      - lambda: id(auto_on) = !id(auto_on);
+      - component.update: epd
   - platform: gpio
     id: btn_4
     name: Taste 4

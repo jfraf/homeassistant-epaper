@@ -48,13 +48,7 @@ struct Mode {
 };
 
 static const Mode MODES[] = {
-    {"A einfach", 1, false, false, 0},
     {"B doppelt", 2, false, false, 0},
-    {"C dreifach", 3, false, false, 0},
-    {"D Einmal-Blinken", 1, true, false, 0},
-    {"E Blinken + doppelt", 2, true, false, 0},
-    {"F Fenster", 1, false, true, 0},
-    {"G Fenster doppelt", 2, false, true, 0},
     {"H halten 2 s", 1, false, false, 2000},
     {"I doppelt + halten 2 s", 2, false, false, 2000},
     {"J doppelt + halten 5 s", 2, false, false, 5000},
