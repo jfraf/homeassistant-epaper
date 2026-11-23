@@ -1,43 +1,44 @@
 # Teilrefresh-Test für das Haus-Display (Waveshare 4.2" V1, UC8176) mit epaper_spi
-# (Kopie von parkghost/esphome-epaper in components/ dieses Repos, ergänzt um Waveshare-V1-Modelle).
-# Modell über die Substitution "model" wählen:
-#   waveshare-4.2in-v1-tune   (Standard) siehe unten
-#   waveshare-4.2in-v1        Teilrefresh-Waveform aus GxEPD2 (im Test schlechter)
-#   waveshare-4.2in-v1-flash  GxEPD2-Variante "balanced flash once" (im Test nicht besser)
-#   gdew042m01                Original-Modell von parkghost (GDEW042M01-Waveform)
-#   waveshare-4.2in-v1-tune:  GDEW042M01-Pegel, Zeiten/VCOM/PLL über t1..t6, vcom_dc, pll einstellbar
-#                             (Standardwerte = gdew042m01), z. B.
-#                             esphome -s t3 60 -s t4 60 run test/epaper-partial.yaml
-# Gleicher Gerätename und gleiche Schlüssel wie haus-display.yaml: per OTA hin- und zurückflashen.
+# (Kopie von parkghost/esphome-epaper in components/ dieses Repos, ergänzt um Waveshare-V1-Modelle
+# und eine zur Laufzeit einstellbare Teilrefresh-Waveform).
+#
+# Die Waveform-Parameter werden aus einer Liste von Kombinationen (partial_combos.h) umgeschaltet,
+# die aktuelle Nummer steht groß oben links. Nummer merken, fertig.
+#   Kombi 0 = Werte aus den Substitutionen t1..t6, vcom_dc, pll (per "esphome -s t3 60 ..." änderbar)
 #
 # Tasten (von hinten gesehen links = 1):
-#   Taste 1  ein Update (Zähler +1, Balken wandert)
-#   Taste 2  großen Block invertieren + Update (Härtetest für Geisterbilder)
-#   Taste 3  Dauertest an/aus: alle 5 s ein Update, jedes 3. mit Block-Invertierung
-# Jedes ${full_every}. Update ist ein Voll-Refresh, dazwischen Teilrefreshes.
-# Im Log steht nach jedem Update "Display update took … ms".
+#   Taste 1  ein Teilrefresh (Zähler +1, Balken wandert)
+#   Taste 2  großen Block invertieren + Teilrefresh (Härtetest für Geisterbilder)
+#   Taste 3  automatischer Durchlauf an/aus: je Kombi 1 Voll-Refresh, dann 6 Teilrefreshes im
+#            Abstand von 8 s (jeder zweite mit Block-Invertierung), dann die nächste Kombi
+#   Taste 4  nächste Kombi von Hand (mit Voll-Refresh als sauberer Ausgangspunkt)
+# Ohne Durchlauf ist jedes ${full_every}. Update ein Voll-Refresh.
+# Im Log: "Partial waveform: …" beim Umschalten und "Display update took … ms" nach jedem Update.
 
 substitutions:
   name: haus-display
   friendly_name: Haus-Display
   full_every: "10"
   model: waveshare-4.2in-v1-tune
-  # nur für waveshare-4.2in-v1-tune (Standard = Werte von gdew042m01)
+  # Kombi 0
   t1: "20"
   t2: "20"
-  t3: "40"
-  t4: "40"
-  t5: "3"
-  t6: "3"
+  t3: "60"
+  t4: "60"
+  t5: "10"
+  t6: "10"
   vcom_dc: "0x1A"
   pll: "0x3A"
 
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
+  includes:
+    - partial_combos.h
   on_boot:
     priority: -100
     then:
+      - script.execute: apply_combo
       - delay: 3s
       - component.update: epd
 
@@ -79,12 +80,37 @@ globals:
   - id: n_updates   # Anzahl gezeichneter Frames seit dem Start
     type: int
     initial_value: '0'
+  - id: upd_cnt     # spiegelt den Voll/Teil-Zähler des Treibers (0 = nächstes Update ist voll)
+    type: int
+    initial_value: '0'
   - id: inverted    # Zustand des Invertier-Blocks
     type: bool
     initial_value: 'false'
-  - id: auto_test
+  - id: sweep_on
     type: bool
     initial_value: 'false'
+  - id: sweep_step
+    type: int
+    initial_value: '0'
+  - id: combo       # aktuelle Kombi
+    type: int
+    initial_value: '0'
+
+script:
+  - id: apply_combo
+    then:
+      - lambda: |-
+          const auto c = hd_test::combo(id(combo), ${t1}, ${t2}, ${t3}, ${t4}, ${t5}, ${t6}, ${vcom_dc}, ${pll});
+          id(epd).set_partial_waveform(c.t[0], c.t[1], c.t[2], c.t[3], c.t[4], c.t[5], c.vcom, c.pll);
+  - id: next_combo
+    then:
+      - lambda: |-
+          id(combo) = (id(combo) + 1) % hd_test::NUM_COMBOS;
+          id(sweep_step) = 0;
+          id(epd).force_full_update();
+          id(upd_cnt) = 0;
+      - script.execute: apply_combo
+      - component.update: epd
 
 spi:
   clk_pin: GPIO18
@@ -102,16 +128,6 @@ display:
     busy_pin: GPIO4   # Polarität kennt der Treiber, nicht invertieren
     rotation: 270
     full_update_every: ${full_every}
-    # partial_timing, vcom_dc und pll nur für waveshare-4.2in-v1-tune, bei anderen Modellen auskommentieren
-    partial_timing:
-      - ${t1}
-      - ${t2}
-      - ${t3}
-      - ${t4}
-      - ${t5}
-      - ${t6}
-    vcom_dc: ${vcom_dc}
-    pll: ${pll}
     update_interval: never
     lambda: |-
       // epaper_spi: Farben WYSIWYG, Schwarz = Color(0,0,0)
@@ -119,28 +135,31 @@ display:
       const auto WHITE = Color(255, 255, 255);
       const int W = 300;
       const int n = id(n_updates)++;
-      const bool full = (n % ${full_every}) == 0;
+      const bool full = id(upd_cnt) == 0;
+      id(upd_cnt) = (id(upd_cnt) + 1) % ${full_every};
+      const auto c = hd_test::combo(id(combo), ${t1}, ${t2}, ${t3}, ${t4}, ${t5}, ${t6}, ${vcom_dc}, ${pll});
 
       it.fill(WHITE);
 
-      // Kopfzeile
-      it.filled_rectangle(0, 0, W, 30, BLACK);
-      it.print(8, 8, id(f_12), WHITE, TextAlign::CENTER_LEFT, "${model}");
-      it.print(8, 22, id(f_12), WHITE, TextAlign::CENTER_LEFT,
-               "T ${t1}/${t2}/${t3}/${t4}/${t5}/${t6} · VCOM ${vcom_dc} · PLL ${pll}");
+      // Kopfzeile: Kombi-Nummer groß, Parameter klein
+      it.filled_rectangle(0, 0, W, 44, BLACK);
+      it.printf(8, 22, id(f_big_s), WHITE, TextAlign::CENTER_LEFT, "%d", id(combo));
+      it.printf(64, 13, id(f_12), WHITE, TextAlign::CENTER_LEFT, "T %u/%u/%u/%u/%u/%u",
+                c.t[0], c.t[1], c.t[2], c.t[3], c.t[4], c.t[5]);
+      it.printf(64, 31, id(f_12), WHITE, TextAlign::CENTER_LEFT, "VCOM 0x%02X · PLL 0x%02X", c.vcom, c.pll);
+      it.print(W - 8, 13, id(f_12), WHITE, TextAlign::CENTER_RIGHT, id(sweep_on) ? "Durchlauf" : "manuell");
       auto t = id(ha_time).now();
       if (t.is_valid())
-        it.strftime(W - 8, 8, id(f_12), WHITE, TextAlign::CENTER_RIGHT, "%H:%M:%S", t);
+        it.strftime(W - 8, 31, id(f_12), WHITE, TextAlign::CENTER_RIGHT, "%H:%M:%S", t);
 
       // Großer Zähler
-      it.printf(W / 2, 95, id(f_big), BLACK, TextAlign::CENTER, "%d", n);
-      it.printf(W / 2, 140, id(f_15), BLACK, TextAlign::CENTER, "%s  ·  nächster Voll-Refresh in %d",
-                full ? "VOLL-Refresh" : "Teilrefresh", ${full_every} - (n % ${full_every}));
+      it.printf(W / 2, 100, id(f_big), BLACK, TextAlign::CENTER, "%d", n);
+      it.print(W / 2, 145, id(f_15), BLACK, TextAlign::CENTER, full ? "VOLL-Refresh" : "Teilrefresh");
 
       // Wandernder Balken (lokale Änderung)
-      it.rectangle(10, 160, 280, 20, BLACK);
+      it.rectangle(10, 162, 280, 20, BLACK);
       const int pos = (n * 23) % 250;
-      it.filled_rectangle(12 + pos, 162, 26, 16, BLACK);
+      it.filled_rectangle(12 + pos, 164, 26, 16, BLACK);
 
       // Statische Referenz: Schachbrett 4 px und feine Linien (dürfen sich nie verändern)
       for (int y = 0; y < 64; y += 4)
@@ -158,17 +177,11 @@ display:
 
       // Fußzeile
       it.print(W / 2, 372, id(f_12), BLACK, TextAlign::CENTER, "T1 Update · T2 Block invertieren");
-      it.print(W / 2, 388, id(f_12), BLACK, TextAlign::CENTER,
-               id(auto_test) ? "T3 Dauertest: AN (alle 5 s)" : "T3 Dauertest: aus");
+      it.print(W / 2, 388, id(f_12), BLACK, TextAlign::CENTER, "T3 Durchlauf an/aus · T4 nächste Kombi");
 
-      ESP_LOGI("test", "Frame %d (%s)", n, full ? "voll" : "teil");
+      ESP_LOGI("test", "Frame %d (%s), Kombi %d", n, full ? "voll" : "teil", id(combo));
 
 font:
-  - file: gfonts://Arimo@700
-    id: f_16b
-    size: 16
-    glyphsets: [GF_Latin_Core]
-    ignore_missing_glyphs: true
   - file: gfonts://Arimo@700
     id: f_22b
     size: 22
@@ -177,6 +190,10 @@ font:
   - file: gfonts://Arimo@700
     id: f_big
     size: 72
+    glyphs: "0123456789"
+  - file: gfonts://Arimo@700
+    id: f_big_s
+    size: 36
     glyphs: "0123456789"
   - file: gfonts://Arimo@400
     id: f_15
@@ -190,14 +207,23 @@ font:
     ignore_missing_glyphs: true
 
 interval:
-  - interval: 5s
+  # Durchlauf: nach 6 Teilrefreshes nächste Kombi (mit Voll-Refresh)
+  - interval: 8s
     then:
       - if:
           condition:
-            lambda: return id(auto_test);
+            lambda: return id(sweep_on);
           then:
-            - lambda: if (id(n_updates) % 3 == 2) id(inverted) = !id(inverted);
-            - component.update: epd
+            - if:
+                condition:
+                  lambda: return id(sweep_step) >= 6;
+                then:
+                  - script.execute: next_combo
+                else:
+                  - lambda: |-
+                      id(sweep_step)++;
+                      if (id(sweep_step) % 2 == 0) id(inverted) = !id(inverted);
+                  - component.update: epd
 
 binary_sensor:
   - platform: gpio
@@ -227,7 +253,9 @@ binary_sensor:
       mode: {input: true, pulldown: true}
     filters: [delayed_on: 20ms]
     on_press:
-      - lambda: id(auto_test) = !id(auto_test);
+      - lambda: |-
+          id(sweep_on) = !id(sweep_on);
+          id(sweep_step) = 6;  // beim Start sofort mit der nächsten Kombi beginnen
       - component.update: epd
   - platform: gpio
     id: btn_4
@@ -237,3 +265,4 @@ binary_sensor:
       mode: {input: true, pulldown: true}
       ignore_strapping_warning: true
     filters: [delayed_on: 20ms]
+    on_press: [script.execute: next_combo]

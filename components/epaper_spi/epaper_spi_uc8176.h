@@ -2,6 +2,8 @@
 
 #include "epaper_spi.h"
 
+#include <vector>
+
 namespace esphome::epaper_spi {
 
 /**
@@ -29,6 +31,13 @@ class EPaperUC8176 : public EPaperBase {
     this->busy_invert_ = true;                         // UC8176 BUSY is active-LOW
   }
 
+ // Lokale Ergänzung (homeassistant-epaper): Teilrefresh-Waveform zur Laufzeit setzen, für Abstimmungstests.
+  // Pegel wie GDEW042M01, Phasenzeiten T1-T4 für alle Tabellen, T5 = WW-Nachtreiben, T6 = BB-Nachtreiben.
+  void set_partial_waveform(uint8_t t1, uint8_t t2, uint8_t t3, uint8_t t4, uint8_t t5, uint8_t t6, uint8_t vcom_dc,
+                            uint8_t pll);
+  // Nächstes Update als Voll-Refresh ausführen.
+  void force_full_update() { this->update_count_ = 0; }
+
  protected:
   void setup() override;
   bool initialise(bool partial) override;
@@ -40,6 +49,7 @@ class EPaperUC8176 : public EPaperBase {
 
   const uint8_t *partial_sequence_;
   size_t partial_sequence_length_;
+  std::vector<uint8_t> partial_override_;
   uint8_t *old_data_{nullptr};
   bool partial_{false};
 };

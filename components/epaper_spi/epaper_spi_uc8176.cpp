@@ -29,7 +29,11 @@ bool EPaperUC8176::initialise(bool partial) {
   }
   if (partial) {
     // Partial init: power/booster/PLL/VCOM-DC + register LUTs (0x20-0x24).
-    this->send_init_sequence_(this->partial_sequence_, this->partial_sequence_length_);
+    if (!this->partial_override_.empty()) {
+      this->send_init_sequence_(this->partial_override_.data(), this->partial_override_.size());
+    } else {
+      this->send_init_sequence_(this->partial_sequence_, this->partial_sequence_length_);
+    }
   }
   return true;
 }
@@ -98,6 +102,43 @@ bool HOT EPaperUC8176::transfer_data() {
 
   this->current_data_index_ = 0;
   return true;
+}
+
+void EPaperUC8176::set_partial_waveform(uint8_t t1, uint8_t t2, uint8_t t3, uint8_t t4, uint8_t t5, uint8_t t6,
+                                         uint8_t vcom_dc, uint8_t pll) {
+  auto &q = this->partial_override_;
+  q.clear();
+  // Format wie die Init-Sequenzen: Befehl, Anzahl Datenbytes, Daten
+  auto cmd = [&q](uint8_t c, std::initializer_list<uint8_t> d) {
+    q.push_back(c);
+    q.push_back((uint8_t) d.size());
+    q.insert(q.end(), d.begin(), d.end());
+  };
+  auto lut = [&q](uint8_t c, size_t size, uint8_t level, uint8_t last) {
+    q.push_back(c);
+    q.push_back((uint8_t) size);
+    const size_t start = q.size();
+    q.insert(q.end(), {level, 0, 0, 0, last, 0x01});
+    q.resize(start + size, 0x00);
+    return start;
+  };
+  cmd(0x01, {0x03, 0x00, 0x2B, 0x2B});  // power setting
+  cmd(0x06, {0x17, 0x17, 0x17});        // booster soft start
+  cmd(0x00, {0x3F});                    // panel setting (LUT from register)
+  cmd(0x30, {pll});                     // PLL
+  cmd(0x61, {(uint8_t) (this->width_ >> 8), (uint8_t) this->width_, (uint8_t) (this->height_ >> 8),
+             (uint8_t) this->height_});  // TRES
+  cmd(0x82, {vcom_dc});                  // VCOM DC
+  cmd(0x50, {0xD7});                     // VCOM/interval, border floating
+  const size_t starts[] = {lut(0x20, 44, 0x00, t4), lut(0x21, 42, 0x02, t5), lut(0x22, 42, 0x5A, t4),
+                           lut(0x23, 42, 0x84, t4), lut(0x24, 42, 0x01, t6)};
+  for (size_t s : starts) {
+    q[s + 1] = t1;
+    q[s + 2] = t2;
+    q[s + 3] = t3;
+  }
+  ESP_LOGI("epaper_spi.uc8176", "Partial waveform: T %u/%u/%u/%u/%u/%u VCOM 0x%02X PLL 0x%02X", t1, t2, t3, t4, t5, t6,
+           vcom_dc, pll);
 }
 
 void EPaperUC8176::power_on() {
