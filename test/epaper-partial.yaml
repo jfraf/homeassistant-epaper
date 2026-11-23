@@ -11,6 +11,7 @@
 #   Taste 3  nächster Refresh-Modus (mit Voll-Refresh als sauberer Ausgangspunkt):
 #            A einfach · B doppelt · C dreifach · D Einmal-Blinken · E Blinken + doppelt ·
 #            F Fenster (nur geänderter Bereich) · G Fenster doppelt · H Spannung 2 s halten
+#            I doppelt + halten 2 s · J doppelt + halten 5 s · K halten 5 s
 #   Taste 4  nächste Kombi (mit Voll-Refresh)
 # Jedes ${full_every}. Update ist ein Voll-Refresh.
 # Im Log: "Partial waveform: …", "Partial window …" und "Display update took … ms".

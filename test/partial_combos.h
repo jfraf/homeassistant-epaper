@@ -56,6 +56,9 @@ static const Mode MODES[] = {
     {"F Fenster", 1, false, true, 0},
     {"G Fenster doppelt", 2, false, true, 0},
     {"H halten 2 s", 1, false, false, 2000},
+    {"I doppelt + halten 2 s", 2, false, false, 2000},
+    {"J doppelt + halten 5 s", 2, false, false, 5000},
+    {"K halten 5 s", 1, false, false, 5000},
 };
 static const int NUM_MODES = sizeof(MODES) / sizeof(MODES[0]);
 
