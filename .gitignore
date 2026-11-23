@@ -4,3 +4,4 @@ secrets.yaml
 .claude/settings.local.json
 # Symlink auf ../secrets.yaml (enthält nur den Pfad, keine Geheimnisse)
 !test/secrets.yaml
+__pycache__/
