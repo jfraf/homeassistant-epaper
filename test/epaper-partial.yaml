@@ -1,9 +1,13 @@
 # Teilrefresh-Test für das Haus-Display (Waveshare 4.2" V1, UC8176) mit epaper_spi
 # (Kopie von parkghost/esphome-epaper in components/ dieses Repos, ergänzt um Waveshare-V1-Modelle).
 # Modell über die Substitution "model" wählen:
-#   waveshare-4.2in-v1        Teilrefresh-Waveform aus GxEPD2 für dieses Panel (Standard)
-#   waveshare-4.2in-v1-flash  GxEPD2-Variante "balanced flash once"
-#   gdew042m01                Original-Modell von parkghost (anderes Panel, deutliches Ghosting)
+#   waveshare-4.2in-v1-tune   (Standard) siehe unten
+#   waveshare-4.2in-v1        Teilrefresh-Waveform aus GxEPD2 (im Test schlechter)
+#   waveshare-4.2in-v1-flash  GxEPD2-Variante "balanced flash once" (im Test nicht besser)
+#   gdew042m01                Original-Modell von parkghost (GDEW042M01-Waveform)
+#   waveshare-4.2in-v1-tune:  GDEW042M01-Pegel, Zeiten/VCOM/PLL über t1..t6, vcom_dc, pll einstellbar
+#                             (Standardwerte = gdew042m01), z. B.
+#                             esphome -s t3 60 -s t4 60 run test/epaper-partial.yaml
 # Gleicher Gerätename und gleiche Schlüssel wie haus-display.yaml: per OTA hin- und zurückflashen.
 #
 # Tasten (von hinten gesehen links = 1):
@@ -17,7 +21,16 @@ substitutions:
   name: haus-display
   friendly_name: Haus-Display
   full_every: "10"
-  model: waveshare-4.2in-v1
+  model: waveshare-4.2in-v1-tune
+  # nur für waveshare-4.2in-v1-tune (Standard = Werte von gdew042m01)
+  t1: "20"
+  t2: "20"
+  t3: "40"
+  t4: "40"
+  t5: "3"
+  t6: "3"
+  vcom_dc: "0x1A"
+  pll: "0x3A"
 
 esphome:
   name: ${name}
@@ -89,6 +102,16 @@ display:
     busy_pin: GPIO4   # Polarität kennt der Treiber, nicht invertieren
     rotation: 270
     full_update_every: ${full_every}
+    # partial_timing, vcom_dc und pll nur für waveshare-4.2in-v1-tune, bei anderen Modellen auskommentieren
+    partial_timing:
+      - ${t1}
+      - ${t2}
+      - ${t3}
+      - ${t4}
+      - ${t5}
+      - ${t6}
+    vcom_dc: ${vcom_dc}
+    pll: ${pll}
     update_interval: never
     lambda: |-
       // epaper_spi: Farben WYSIWYG, Schwarz = Color(0,0,0)
@@ -102,10 +125,12 @@ display:
 
       // Kopfzeile
       it.filled_rectangle(0, 0, W, 30, BLACK);
-      it.print(8, 15, id(f_15), WHITE, TextAlign::CENTER_LEFT, "${model}");
+      it.print(8, 8, id(f_12), WHITE, TextAlign::CENTER_LEFT, "${model}");
+      it.print(8, 22, id(f_12), WHITE, TextAlign::CENTER_LEFT,
+               "T ${t1}/${t2}/${t3}/${t4}/${t5}/${t6} · VCOM ${vcom_dc} · PLL ${pll}");
       auto t = id(ha_time).now();
       if (t.is_valid())
-        it.strftime(W - 8, 15, id(f_16b), WHITE, TextAlign::CENTER_RIGHT, "%H:%M:%S", t);
+        it.strftime(W - 8, 8, id(f_12), WHITE, TextAlign::CENTER_RIGHT, "%H:%M:%S", t);
 
       // Großer Zähler
       it.printf(W / 2, 95, id(f_big), BLACK, TextAlign::CENTER, "%d", n);

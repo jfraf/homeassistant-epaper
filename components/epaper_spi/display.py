@@ -96,6 +96,7 @@ def model_schema(config):
                 }
             ),
             cv.Optional(CONF_FULL_UPDATE_EVERY, default=1): cv.int_range(1, 255),
+            **model.extra_schema(),
             model.option(CONF_BUSY_PIN): pins.gpio_input_pin_schema,
             model.option(CONF_CS_PIN): pins.gpio_output_pin_schema,
             model.option(CONF_DC_PIN, fallback=None): pins.gpio_output_pin_schema,
