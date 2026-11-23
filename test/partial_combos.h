@@ -11,19 +11,22 @@ struct Combo {
 };
 
 // Kombi 0 kommt aus den Substitutionen, 1..N aus dieser Liste.
+// Runde 2: Favoriten aus Runde 1 waren 2 (VCOM 0x12), 5 (ausgeglichen 60) und 11 (ausgeglichen, 0x12, 50 Hz).
+// Runde 1 (zum Nachschlagen): 1 20/20/60/60/10/10 1A 3A · 2 dto. VCOM 12 · 3 dto. VCOM 22 · 4 40x4 ·
+// 5 60x4 · 6 40/40/60/60 · 7 Nachtreiben 20 · 8 Nachtreiben 30 · 9 20/20/90/90 · 10 50 Hz ·
+// 11 40x4 VCOM 12 50 Hz · 12 0/0/60/60
 static const Combo COMBOS[] = {
-    {{20, 20, 60, 60, 10, 10}, 0x1A, 0x3A},  //  1 bisher bester Stand
-    {{20, 20, 60, 60, 10, 10}, 0x12, 0x3A},  //  2 VCOM -1,0 V
-    {{20, 20, 60, 60, 10, 10}, 0x22, 0x3A},  //  3 VCOM -1,8 V
-    {{40, 40, 40, 40, 10, 10}, 0x1A, 0x3A},  //  4 ausgeglichen (vorher = nachher)
-    {{60, 60, 60, 60, 10, 10}, 0x1A, 0x3A},  //  5 ausgeglichen, lang
-    {{40, 40, 60, 60, 10, 10}, 0x1A, 0x3A},  //  6 längerer Ausgleich vorab
-    {{20, 20, 60, 60, 20, 20}, 0x1A, 0x3A},  //  7 stärker nachtreiben
-    {{20, 20, 60, 60, 30, 30}, 0x1A, 0x3A},  //  8 noch stärker nachtreiben
-    {{20, 20, 90, 90, 10, 10}, 0x1A, 0x3A},  //  9 sehr langer Farbwechsel
-    {{20, 20, 60, 60, 10, 10}, 0x1A, 0x3C},  // 10 50 Hz (alle Phasen doppelt so lang)
-    {{40, 40, 40, 40, 10, 10}, 0x12, 0x3C},  // 11 ausgeglichen, VCOM -1,0 V, 50 Hz
-    {{0, 0, 60, 60, 10, 10}, 0x1A, 0x3A},    // 12 ohne Ausgleichsphase
+    {{60, 60, 60, 60, 10, 10}, 0x12, 0x3A},  //  1 Favorit 5 + VCOM von 2
+    {{60, 60, 60, 60, 10, 10}, 0x0E, 0x3A},  //  2 VCOM -0,8 V
+    {{60, 60, 60, 60, 10, 10}, 0x16, 0x3A},  //  3 VCOM -1,2 V
+    {{50, 50, 50, 50, 10, 10}, 0x12, 0x3A},  //  4 etwas kürzer
+    {{80, 80, 80, 80, 10, 10}, 0x12, 0x3A},  //  5 länger
+    {{60, 60, 60, 60, 5, 5}, 0x12, 0x3A},    //  6 schwächer nachtreiben
+    {{60, 60, 60, 60, 20, 20}, 0x12, 0x3A},  //  7 stärker nachtreiben
+    {{30, 30, 30, 30, 10, 10}, 0x12, 0x3C},  //  8 wie 1, aber 50 Hz (gleiche Dauer)
+    {{40, 40, 40, 40, 10, 10}, 0x12, 0x3C},  //  9 = Favorit 11 aus Runde 1
+    {{60, 60, 60, 60, 10, 10}, 0x1A, 0x3A},  // 10 = Favorit 5 aus Runde 1
+    {{20, 20, 60, 60, 10, 10}, 0x12, 0x3A},  // 11 = Favorit 2 aus Runde 1
 };
 
 static const int NUM_COMBOS = 1 + sizeof(COMBOS) / sizeof(COMBOS[0]);
