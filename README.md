@@ -28,15 +28,21 @@ E-Paper-Dashboard für Home Assistant auf Basis von ESPHome. Die Hardware stammt
   - PV: aktuelle Leistung, Ertrag heute, Restprognose (Forecast.Solar, 2 Flächen) bzw. Prognose morgen
   - zwei RGB-LEDs als Lichter `LED 1` / `LED 2` in Home Assistant
 - `test/led-apa106/`: Arduino-Nano-Testprogramm für die LEDs
-- `components/epaper_spi/`: Kopie von [parkghost/esphome-epaper](https://github.com/parkghost/esphome-epaper) (Commit `cf145a7`, Apache-2.0), ergänzt um die Modelle `waveshare-4.2in-v1` und `waveshare-4.2in-v1-flash` mit der Teilrefresh-Waveform aus [GxEPD2](https://github.com/ZinggJM/GxEPD2) (`models/uc8176.py`)
+- `components/epaper_spi/`: Kopie von [parkghost/esphome-epaper](https://github.com/parkghost/esphome-epaper) (Commit `cf145a7`, Apache-2.0), ergänzt um das Modell `waveshare-4.2in-v1` (auf dem Gerät abgestimmte Teilrefresh-Waveform, mehrere Durchgänge, Einmal-Blinken, Fenster; siehe `models/uc8176.py` und `epaper_spi_uc8176.*`)
 - `test/epaper-partial.yaml`: Teilrefresh-Test mit diesem `epaper_spi`, Modell per Substitution `model` wählbar; `test/secrets.yaml` ist ein Symlink auf `../secrets.yaml`
 - `mockup/dashboard.html`: HTML-Skizze der Übersichtsseite
 
-Für das ESPHome-Dashboard muss `haus_display.h` neben der YAML liegen. Schrift: Arimo (Google Fonts), normal und fett.
+Für das ESPHome-Dashboard muss `haus_display.h` neben der YAML liegen; `epaper_spi` wird aus diesem Repo geladen. Schrift: Arimo (Google Fonts), normal und fett.
 
 Sicherheitsrelevante Zustände (Fenster, Türen, Garage, Auto, Waschmaschinenstatus) aktualisieren das Display sofort.
 Langsam veränderliche Werte (PV, Akkustand, Restlaufzeit …) werden alle 5 Minuten geprüft und lösen nur dann einen
-Refresh aus, wenn sich der angezeigte Wert ändert. Das Panel kann in ESPHome nur vollständig aktualisiert werden.
+Refresh aus, wenn sich der angezeigte Wert ändert.
+
+Refresh-Arten (Treiber `components/epaper_spi`, Modell `waveshare-4.2in-v1`):
+
+- normal: Teilrefresh ohne Blinken in zwei Durchgängen (ca. 6 s)
+- jedes 10. Update (`flash_every`): „Einmal-Blinken“, das Bild invertiert genau einmal und Geisterbilder verschwinden
+- Voll-Refresh mit mehrfachem Blinken nur nach dem Start und täglich um 03:30 Uhr
 
 ## Build & Flash
 

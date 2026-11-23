@@ -24,6 +24,9 @@ void EPaperUC8176::setup() {
 
 bool EPaperUC8176::initialise(bool partial) {
   this->partial_ = partial;
+  this->flash_now_ = partial && (this->flash_ || this->flash_once_);
+  if (partial)
+    this->flash_once_ = false;
   this->passes_left_ = partial ? this->passes_ - 1 : 0;
   this->resend_ = false;
   this->held_ = false;
@@ -47,7 +50,7 @@ void EPaperUC8176::compute_window_() {
   this->win_y_ = 0;
   this->win_w_ = this->row_width_;
   this->win_h_ = this->height_;
-  if (!this->partial_ || !this->windowed_ || this->flash_ || this->old_data_ == nullptr)
+  if (!this->partial_ || !this->windowed_ || this->flash_now_ || this->old_data_ == nullptr)
     return;
   // umschließendes Rechteck aller geänderten Bytes
   uint16_t x0 = this->row_width_, x1 = 0, y0 = this->height_, y1 = 0;
@@ -86,7 +89,7 @@ bool HOT EPaperUC8176::transfer_data() {
       this->command(0x91);  // PARTIAL IN
       this->cmd_data(0x90, {(uint8_t) (xs >> 8), (uint8_t) xs, (uint8_t) (xe >> 8), (uint8_t) xe, (uint8_t) (ys >> 8),
                             (uint8_t) ys, (uint8_t) (ye >> 8), (uint8_t) ye, 0x01});
-      ESP_LOGD("epaper_spi.uc8176", "Partial window x %u-%u, y %u-%u%s", xs, xe, ys, ye, this->flash_ ? " (flash)" : "");
+      ESP_LOGD("epaper_spi.uc8176", "Partial window x %u-%u, y %u-%u%s", xs, xe, ys, ye, this->flash_now_ ? " (flash)" : "");
     }
   }
   const size_t frame = (size_t) this->win_w_ * this->win_h_;
@@ -109,7 +112,7 @@ bool HOT EPaperUC8176::transfer_data() {
       const size_t n = std::min(MAX_TRANSFER_SIZE, row_left);
       if (!this->partial_) {
         std::fill_n(bytes_to_send, n, (uint8_t) 0xFF);
-      } else if (this->flash_ && !this->resend_) {
+      } else if (this->flash_now_ && !this->resend_) {
         for (size_t i = 0; i < n; i++)
           bytes_to_send[i] = ~this->buffer_[off + i];
       } else {

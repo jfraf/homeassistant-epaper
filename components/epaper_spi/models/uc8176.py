@@ -105,37 +105,10 @@ UC8176BWR(
 
 
 # --- Lokale Ergänzung (homeassistant-epaper) -------------------------------------------
-# Waveshare 4.2" e-Paper V1 (Good Display GDEW042T2, UC8176). Partial-Waveform aus GxEPD2
-# (GxEPD2_420.cpp, J.-M. Zingg, für genau dieses Panel entwickelt), dazu PLL 0x3A und
-# VCOM-DC 0x12 (-1,0 V) wie dort.
-#   T1 Ladungsausgleich vor dem Farbwechsel, T2/T3 Erhaltungsphase (hält unveränderte
-#   Pixel satt), T4 Farbwechsel. Einheit: Frames der PLL-Frequenz (100 Hz).
+# Waveshare 4.2" e-Paper V1 (UC8176). Die GxEPD2-Waveform für das GDEW042T2 war auf dem
+# Testgerät schlechter als die GDEW042M01-Pegel mit eigenen Zeiten, daher diese Variante.
 
-
-def _gdew042t2_luts(t1, t2, t3, t4):
-    def lut(level, size):
-        return [level, t1, t2, t3, t4, 0x01] + [0x00] * (size - 6)
-
-    return (
-        lut(0x00, 44),  # 0x20 VCOM         00 00 00 00
-        lut(0x18, 42),  # 0x21 WW (weiß bleibt)    00 01 10 00
-        lut(0x5A, 42),  # 0x22 BW (wird weiß)      01 01 10 10
-        lut(0xA5, 42),  # 0x23 WB (wird schwarz)   10 10 01 01
-        lut(0x24, 42),  # 0x24 BB (schwarz bleibt) 00 10 01 00
-    )
-
-
-_WS42V1 = dict(
-    width=400, height=300, data_rate="2MHz", minimum_update_interval="1s", vcom_dc=0x12
-)
-
-# GxEPD2-Standard: Ausgleich, kurze Erhaltung, Farbwechsel
-UC8176Mono("waveshare-4.2in-v1", luts=_gdew042t2_luts(25, 1, 4, 25), **_WS42V1)
-# GxEPD2-Variante "balanced flash once": Teilbereich blinkt einmal kurz
-UC8176Mono("waveshare-4.2in-v1-flash", luts=_gdew042t2_luts(0, 25, 25, 0), **_WS42V1)
-
-
-# Einstellbare Variante mit den Pegeln der GDEW042M01-Waveform (im Test besser als die GxEPD2-Werte).
+# Einstellbare Variante mit den Pegeln der GDEW042M01-Waveform.
 #   partial_timing: [T1, T2, T3, T4, T5, T6]  Frames je Phase; T1-T4 für alle Tabellen,
 #                   T5 = Nachtreiben "weiß bleibt" (WW), T6 = Nachtreiben "schwarz bleibt" (BB)
 #   vcom_dc:        0x82-Register, VCOM = -0,1 V - 0,05 V * Wert (0x1A = -1,4 V, 0x12 = -1,0 V)
@@ -156,12 +129,19 @@ def _m01_luts(t1, t2, t3, t4, t5, t6):
 
 
 class UC8176MonoTunable(UC8176Mono):
+    def __init__(self, name, timing, vcom_dc, **defaults):
+        super().__init__(name, **defaults)
+        self.default_timing = timing
+        self.default_vcom_dc = vcom_dc
+
     def extra_schema(self) -> dict:
         return {
-            cv.Optional(CONF_PARTIAL_TIMING, default=[20, 20, 40, 40, 3, 3]): cv.All(
+            cv.Optional(CONF_PARTIAL_TIMING, default=self.default_timing): cv.All(
                 cv.ensure_list(cv.int_range(0, 255)), cv.Length(min=6, max=6)
             ),
-            cv.Optional(CONF_VCOM_DC, default=0x1A): cv.int_range(0, 0x3A),
+            cv.Optional(CONF_VCOM_DC, default=self.default_vcom_dc): cv.int_range(
+                0, 0x3A
+            ),
             cv.Optional(CONF_PLL, default=0x3A): cv.int_range(0, 0x3F),
         }
 
@@ -172,10 +152,13 @@ class UC8176MonoTunable(UC8176Mono):
         return super().get_constructor_args(config)
 
 
+_WS42V1 = dict(width=400, height=300, data_rate="2MHz", minimum_update_interval="1s")
+
+# Auf dem Haus-Display abgestimmte Werte: ausgeglichene Phasen (60 Frames), kräftiges Nachtreiben, VCOM -1,0 V
 UC8176MonoTunable(
-    "waveshare-4.2in-v1-tune",
-    width=400,
-    height=300,
-    data_rate="2MHz",
-    minimum_update_interval="1s",
+    "waveshare-4.2in-v1", timing=[60, 60, 60, 60, 20, 20], vcom_dc=0x12, **_WS42V1
+)
+# Für test/epaper-partial.yaml: Ausgangswerte des GDEW042M01
+UC8176MonoTunable(
+    "waveshare-4.2in-v1-tune", timing=[20, 20, 40, 40, 3, 3], vcom_dc=0x1A, **_WS42V1
 )

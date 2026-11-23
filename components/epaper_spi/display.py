@@ -96,6 +96,8 @@ def model_schema(config):
                 }
             ),
             cv.Optional(CONF_FULL_UPDATE_EVERY, default=1): cv.int_range(1, 255),
+            # lokale Ergänzung: Farben wie bei waveshare_epaper (COLOR_ON = Tinte)
+            cv.Optional("ink_is_color_on", default=False): cv.boolean,
             **model.extra_schema(),
             model.option(CONF_BUSY_PIN): pins.gpio_input_pin_schema,
             model.option(CONF_CS_PIN): pins.gpio_output_pin_schema,
@@ -202,6 +204,8 @@ async def to_code(config):
         enable = [await cg.gpio_pin_expression(pin) for pin in enable_pin]
         cg.add(var.set_enable_pins(enable))
     cg.add(var.set_full_update_every(config[CONF_FULL_UPDATE_EVERY]))
+    if config["ink_is_color_on"]:
+        cg.add(var.set_ink_is_color_on(True))
     if CONF_RESET_DURATION in config:
         cg.add(var.set_reset_duration(config[CONF_RESET_DURATION]))
     if transform := config.get(CONF_TRANSFORM):

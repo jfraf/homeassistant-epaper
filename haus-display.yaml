@@ -9,18 +9,33 @@
 #   - alle ${slow_refresh}: nur wenn sich ein angezeigter "langsamer" Wert sichtbar geändert hat
 #     (PV-Leistung/-Ertrag/-Prognose, Akkustand, Reichweite, Ladeleistung, Restlaufzeit Waschmaschine);
 #     derselbe Check zeichnet auch neu, falls ein Sofort-Trigger einmal verloren gegangen ist
-#   - zwischen zwei Refreshes liegen mindestens 12 s (das Panel ignoriert Bilder während eines Refreshs)
+#
+# Refresh-Arten (Treiber: components/epaper_spi, Modell waveshare-4.2in-v1):
+#   - normal: Teilrefresh ohne Blinken, zwei Durchgänge (der zweite treibt alle Pixel nach), ca. 6 s
+#   - jedes ${flash_every}. Update: "Einmal-Blinken" (Bild invertiert einmal, beseitigt Geisterbilder)
+#   - Voll-Refresh (mehrfaches Blinken) nur nach dem Start und täglich um 03:30 Uhr
 
 substitutions:
   name: haus-display
   friendly_name: Haus-Display
   slow_refresh: 5min
+  flash_every: "10"
 
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
   includes:
     - haus_display.h
+  on_boot:
+    then:
+      # Teilrefresh in zwei Durchgängen, kein Fenster, kein Nachhalten (im Test Modus "B")
+      - lambda: id(epd).set_partial_options(2, false, false, 0);
+
+external_components:
+  # epaper_spi aus diesem Repo (Kopie von parkghost/esphome-epaper mit Waveshare-4.2"-V1-Modell)
+  - source: github://jfraf/homeassistant-epaper@main
+    components: [epaper_spi]
+    refresh: 0s
 
 esp32:
   board: lolin_d32
@@ -49,14 +64,24 @@ captive_portal:
 time:
   - platform: homeassistant
     id: ha_time
+    on_time:
+      # nächtlicher Voll-Refresh als Grundreinigung
+      - seconds: 0
+        minutes: 30
+        hours: 3
+        then:
+          - lambda: |-
+              id(epd).force_full_update();
+              id(n_partial) = 0;
+          - script.execute: draw_safe
 
 globals:
   - id: cur_sig      # Signatur der "langsamen" Werte, zuletzt berechnet
     type: std::string
   - id: drawn_sig    # Signatur zum Zeitpunkt des letzten Zeichnens
     type: std::string
-  - id: last_draw_ms # millis() beim letzten Zeichnen (Panel braucht einige Sekunden pro Refresh)
-    type: uint32_t
+  - id: n_partial    # Teilrefreshes seit dem letzten Einmal-Blinken / Voll-Refresh
+    type: int
     initial_value: '0'
 
 # ---------------------------------------------------------------------------
@@ -67,18 +92,19 @@ spi:
   mosi_pin: GPIO23
 
 display:
-  # Hinweis: waveshare_epaper ist ab ESPHome 2026.x deprecated (Entfernung 2027.5).
-  # Der Nachfolger epaper_spi unterstützt den UC8176 (4.2" V1) noch nicht.
-  # Das Modell 4.20in kann in ESPHome nur Voll-Refreshes (kein Partial Update).
-  - platform: waveshare_epaper
+  # epaper_spi (lokale Komponente) statt des abgekündigten waveshare_epaper: wartet auf BUSY und kann
+  # Teilrefreshes. Voll-Refreshes werden gezielt ausgelöst (siehe time/on_time), nicht über den Zähler.
+  - platform: epaper_spi
     id: epd
-    model: 4.20in
+    model: waveshare-4.2in-v1
+    full_update_every: 255
+    ink_is_color_on: true # Farben wie bisher: COLOR_ON = schwarz
     cs_pin:
       number: GPIO5
       ignore_strapping_warning: true
     dc_pin: GPIO17
     reset_pin: GPIO16
-    busy_pin: GPIO4
+    busy_pin: GPIO4 # Polarität kennt der Treiber, nicht invertieren
     rotation: 270 # Display hängt hochkant
     update_interval: never
     lambda: |-
@@ -339,7 +365,6 @@ display:
       // Signatur der langsamen Werte merken, damit der Intervall-Check nur bei Änderungen neu zeichnet
       id(compute_sig).execute();
       id(drawn_sig) = id(cur_sig);
-      id(last_draw_ms) = millis();
 
 script:
   # Entprellt Zustandsänderungen: mehrere Änderungen kurz hintereinander -> ein Refresh
@@ -349,15 +374,19 @@ script:
       - delay: 2s
       - script.execute: draw_safe
 
-  # Zeichnet erst, wenn der letzte Refresh mindestens 12 s her ist. Der ESPHome-Treiber für das 4.20in
-  # wartet nicht auf das BUSY-Signal; ein Bild, das während eines laufenden Refreshs kommt, geht verloren.
+  # Zeichnet, sobald kein Refresh mehr läuft (der Treiber verwirft Updates während eines laufenden Refreshs).
   # Ein bereits wartender Aufruf wird ersetzt (restart), es wird also immer der aktuellste Stand gezeichnet.
   - id: draw_safe
     mode: restart
     then:
       - wait_until:
           condition:
-            lambda: return millis() - id(last_draw_ms) > 12000;
+            lambda: return id(epd).is_update_idle();
+      - lambda: |-
+          if (++id(n_partial) >= ${flash_every}) {
+            id(n_partial) = 0;
+            id(epd).request_flash();
+          }
       - component.update: epd
 
   # Berechnet eine Signatur aller "langsamen" Werte in der Auflösung, in der sie angezeigt werden
@@ -565,7 +594,7 @@ light:
     pin: GPIO27
     num_leds: 2
     chipset: WS2812 # gleiches Timing wie im erfolgreichen Nano-Test (800 kHz)
-    rgb_order: RGB
+    channel_colors: RGB
     default_transition_length: 0s
     restore_mode: ALWAYS_OFF
   - platform: partition

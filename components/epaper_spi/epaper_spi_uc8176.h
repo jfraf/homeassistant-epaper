@@ -37,6 +37,8 @@ class EPaperUC8176 : public EPaperBase {
                             uint8_t pll);
   // Nächstes Update als Voll-Refresh ausführen.
   void force_full_update() { this->update_count_ = 0; }
+  // Nächstes Teil-Update einmalig als "Einmal-Blinken" ausführen (siehe set_partial_options, flash).
+  void request_flash() { this->flash_once_ = true; }
   // Optionen für Teilrefreshes:
   //   passes    Anzahl Durchgänge (1 = normal; weitere Durchgänge treiben alle Pixel nochmals in ihre Sollfarbe)
   //   flash     "Einmal-Blinken": als altes Bild wird das Negativ gesendet, jeder Pixel wird komplett neu
@@ -68,6 +70,8 @@ class EPaperUC8176 : public EPaperBase {
   bool partial_{false};
   uint8_t passes_{1};
   bool flash_{false};
+  bool flash_once_{false};
+  bool flash_now_{false};  // gilt für das laufende Update
   bool windowed_{false};
   uint16_t hold_ms_{0};
   uint8_t passes_left_{0};

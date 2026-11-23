@@ -102,7 +102,7 @@ class EPaperBase : public Display,
       return;
     }
 
-    auto pixel_color = color_to_bit(color) ? 0xFF : 0x00;
+    auto pixel_color = (color_to_bit(color) != 0) != this->ink_is_color_on_ ? 0xFF : 0x00;
 
     // We store 8 pixels per byte
     this->buffer_.fill(pixel_color);
@@ -114,8 +114,14 @@ class EPaperBase : public Display,
 
   void clear() override {
     // clear buffer to white, just like real paper.
-    this->fill(COLOR_ON);
+    this->fill(this->ink_is_color_on_ ? COLOR_OFF : COLOR_ON);
   }
+
+  // Lokale Ergänzungen (homeassistant-epaper):
+  // Farbkonvention wie waveshare_epaper: COLOR_ON (Standardfarbe aller Zeichenfunktionen) = Tinte.
+  void set_ink_is_color_on(bool v) { this->ink_is_color_on_ = v; }
+  // true, wenn kein Update läuft (update() verwirft Aufrufe während eines laufenden Updates).
+  bool is_update_idle() const { return this->state_ == EPaperState::IDLE; }
 
   int get_width() override { return this->effective_transform_ & SWAP_XY ? this->height_ : this->width_; }
   int get_height() override { return this->effective_transform_ & SWAP_XY ? this->width_ : this->height_; }
@@ -198,6 +204,7 @@ class EPaperBase : public Display,
   uint8_t transform_{};
   uint8_t effective_transform_{};
   uint8_t update_count_{};
+  bool ink_is_color_on_{false};
   // these values represent the bounds of the updated buffer. Note that x_high and y_high
   // point to the pixel past the last one updated, i.e. may range up to width/height.
   uint16_t x_low_{}, y_low_{}, x_high_{}, y_high_{};
