@@ -1,4 +1,9 @@
-# Teilrefresh-Test für das Haus-Display (Waveshare 4.2" V1, UC8176) mit epaper_spi von parkghost.
+# Teilrefresh-Test für das Haus-Display (Waveshare 4.2" V1, UC8176) mit epaper_spi
+# (Kopie von parkghost/esphome-epaper in components/ dieses Repos, ergänzt um Waveshare-V1-Modelle).
+# Modell über die Substitution "model" wählen:
+#   waveshare-4.2in-v1        Teilrefresh-Waveform aus GxEPD2 für dieses Panel (Standard)
+#   waveshare-4.2in-v1-flash  GxEPD2-Variante "balanced flash once"
+#   gdew042m01                Original-Modell von parkghost (anderes Panel, deutliches Ghosting)
 # Gleicher Gerätename und gleiche Schlüssel wie haus-display.yaml: per OTA hin- und zurückflashen.
 #
 # Tasten (von hinten gesehen links = 1):
@@ -12,6 +17,7 @@ substitutions:
   name: haus-display
   friendly_name: Haus-Display
   full_every: "10"
+  model: waveshare-4.2in-v1
 
 esphome:
   name: ${name}
@@ -28,8 +34,10 @@ esp32:
     type: esp-idf
 
 external_components:
-  - source: github://parkghost/esphome-epaper@cf145a72d835a5ef0b66576a5945bc7f16f232c0
+  # aus diesem Repo (components/epaper_spi), damit es auch im ESPHome-Dashboard ohne lokale Kopie geht
+  - source: github://jfraf/homeassistant-epaper@main
     components: [epaper_spi]
+    refresh: 0s
 
 logger:
 
@@ -72,7 +80,7 @@ spi:
 display:
   - platform: epaper_spi
     id: epd
-    model: gdew042m01
+    model: ${model}
     cs_pin:
       number: GPIO5
       ignore_strapping_warning: true
@@ -94,7 +102,7 @@ display:
 
       // Kopfzeile
       it.filled_rectangle(0, 0, W, 30, BLACK);
-      it.print(8, 15, id(f_16b), WHITE, TextAlign::CENTER_LEFT, "Teilrefresh-Test");
+      it.print(8, 15, id(f_15), WHITE, TextAlign::CENTER_LEFT, "${model}");
       auto t = id(ha_time).now();
       if (t.is_valid())
         it.strftime(W - 8, 15, id(f_16b), WHITE, TextAlign::CENTER_RIGHT, "%H:%M:%S", t);
