@@ -449,11 +449,13 @@ display:
       rail(y, "\U000F0E18");  // calendar-month-outline
       {
         const std::string cal = txt(id(cal_text));
-        const int rows = (400 - (y + 4)) / 15;
         const long today_n = now.is_valid() ? hd::days_from_civil(now.year, now.month, now.day_of_month) : 0;
-        int row = 0;
+        // Spalten (für große und kleine Zeilen gleich): Wochentag | Datum rechtsbündig | Uhrzeit rechtsbündig | Titel
+        const int X_DATE = X0 + 66, X_TIME = X0 + 108, X_TITLE = X0 + 114;
+        long big_day = -1;  // nächster Tag nach heute, der Termine hat: wie heute in großer Schrift
+        int row = 0, ry = y + 5;
         size_t pos = 0;
-        while (row < rows && pos < cal.size()) {
+        while (pos < cal.size()) {
           size_t nl = cal.find('\n', pos);
           if (nl == std::string::npos) nl = cal.size();
           const hd::CalEvent e = hd::parse_event(cal.substr(pos, nl - pos));
@@ -462,20 +464,24 @@ display:
           const long n = hd::days_from_civil(e.year, e.month, e.day);
           const long diff = now.is_valid() ? n - today_n : 99;
           const bool is_today = diff <= 0;  // auch bereits laufende mehrtägige Termine
-          // Wochentag und Datum in eigenen Spalten (Datum rechtsbündig); "Heute"/"Morgen" überspannen beide
-          const int ry = y + 5 + row * 15;
+          if (!is_today && big_day < 0) big_day = n;
+          const bool big = is_today || n == big_day;
+          const int rh = big ? 19 : 15;
+          if (ry + rh > 401) break;  // kein Platz mehr
+          font::Font *f = big ? (is_today ? id(f_15b) : id(f_15)) : id(f_12);    // Tag, Datum, Uhrzeit
+          font::Font *tf = big ? f : id(f_13);                                    // Titel
+          // "Heute"/"Morgen" überspannen die Spalten Wochentag und Datum
           if (is_today) {
-            it.print(X0, ry, id(f_sec), TextAlign::TOP_LEFT, "Heute");
+            it.print(X0, ry, f, TextAlign::TOP_LEFT, "Heute");
           } else if (diff == 1) {
-            it.print(X0, ry, id(f_12), TextAlign::TOP_LEFT, "Morgen");
+            it.print(X0, ry, f, TextAlign::TOP_LEFT, "Morgen");
           } else {
-            it.print(X0, ry, id(f_12), TextAlign::TOP_LEFT, WD[((n + 4) % 7 + 7) % 7]);
-            it.printf(X0 + 56, ry, id(f_12), TextAlign::TOP_RIGHT, "%02d.%02d.", e.day, e.month);
+            it.print(X0, ry, f, TextAlign::TOP_LEFT, WD[((n + 4) % 7 + 7) % 7]);
+            it.printf(X_DATE, ry, f, TextAlign::TOP_RIGHT, "%02d.%02d.", e.day, e.month);
           }
-          if (!e.time.empty())
-            it.print(X0 + 90, ry, is_today ? id(f_sec) : id(f_12), TextAlign::TOP_RIGHT, e.time.c_str());
-          font::Font *tf = is_today ? id(f_13b) : id(f_13);
-          it.print(X0 + 96, ry, tf, TextAlign::TOP_LEFT, fit(tf, e.title, W - 4 - (X0 + 96)).c_str());
+          if (!e.time.empty()) it.print(X_TIME, ry, f, TextAlign::TOP_RIGHT, e.time.c_str());
+          it.print(X_TITLE, ry, tf, TextAlign::TOP_LEFT, fit(tf, e.title, W - 4 - X_TITLE).c_str());
+          ry += rh;
           row++;
         }
         if (row == 0)

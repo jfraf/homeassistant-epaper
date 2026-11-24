@@ -312,17 +312,22 @@ function drawPV(s, y0) {
 // ---------- Termine (ab y0 bis zum unteren Rand) ----------
 function drawCal(s, y0) {
   let h = hline(y0) + rail(y0, 'calendar-month-outline');
-  const rows = Math.floor((400 - (y0 + 4)) / 15);
   if (!s.cal.length) return h + tx(X0, y0 + 6, 'Keine Termine in den nächsten Tagen', { size: 13 });
-  s.cal.slice(0, rows).forEach((ev, i) => {
-    const y = y0 + 5 + i * 15, today = ev.day === 'Heute';
-    // Wochentag und Datum in eigenen Spalten (Datum rechtsbündig); "Heute"/"Morgen" überspannen beide
-    const [wd, date] = ev.day.split(' ');
-    h += tx(X0, y, wd, { size: 12, bold: today });
-    if (date) h += tx(X0 + 56, y, date, { size: 12, align: 'TR' });
-    h += tx(X0 + 90, y, ev.time, { size: 12, align: 'TR', bold: today });
-    h += tx(X0 + 96, y, ev.title, { size: 13, bold: today, maxw: W - 4 - (X0 + 96) });
-  });
+  // Spalten (für große und kleine Zeilen gleich): Wochentag | Datum rechtsbündig | Uhrzeit rechtsbündig | Titel
+  const X_DATE = X0 + 66, X_TIME = X0 + 108, X_TITLE = X0 + 114;
+  // groß: heute und der nächste Tag, der Termine hat
+  const bigDay = (s.cal.find(ev => ev.day !== 'Heute') || {}).day;
+  let y = y0 + 5;
+  for (const ev of s.cal) {
+    const today = ev.day === 'Heute', big = today || ev.day === bigDay, rh = big ? 19 : 15;
+    if (y + rh > 401) break;   // kein Platz mehr
+    const size = big ? 15 : 12, [wd, date] = ev.day.split(' ');
+    h += tx(X0, y, wd, { size, bold: today });
+    if (date) h += tx(X_DATE, y, date, { size, align: 'TR' });
+    h += tx(X_TIME, y, ev.time, { size, align: 'TR', bold: today });
+    h += tx(X_TITLE, y, ev.title, { size: big ? 15 : 13, bold: today, maxw: W - 4 - X_TITLE });
+    y += rh;
+  }
   return h;
 }
 
