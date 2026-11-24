@@ -451,7 +451,7 @@ display:
         const std::string cal = txt(id(cal_text));
         const long today_n = now.is_valid() ? hd::days_from_civil(now.year, now.month, now.day_of_month) : 0;
         // Spalten (für große und kleine Zeilen gleich): Wochentag | Datum rechtsbündig | Uhrzeit rechtsbündig | Titel
-        const int X_DATE = X0 + 56, X_TIME = X0 + 102, X_TITLE = X0 + 108;
+        const int X_DATE = X0 + 62, X_TIME = X0 + 113, X_TITLE = X0 + 119;
         int row = 0, ry = y + 5;
         size_t pos = 0;
         while (pos < cal.size()) {
@@ -463,11 +463,11 @@ display:
           const long n = hd::days_from_civil(e.year, e.month, e.day);
           const long diff = now.is_valid() ? n - today_n : 99;
           const bool is_today = diff <= 0;  // auch bereits laufende mehrtägige Termine
-          const bool big = diff <= 1;  // heute und morgen in großer Schrift
-          const int rh = big ? 20 : 15;
+          const bool big = diff <= 1;  // heute und morgen in großer, fetter Schrift
+          const int rh = big ? 21 : 16;
           if (ry + rh > 401) break;  // kein Platz mehr
-          font::Font *f = big ? (is_today ? id(f_16b) : id(f_16)) : id(f_12);    // Tag, Datum, Uhrzeit
-          font::Font *tf = big ? f : id(f_13);                                    // Titel
+          font::Font *f = big ? id(f_17b) : id(f_13);    // Tag, Datum, Uhrzeit
+          font::Font *tf = big ? f : id(f_14);                                    // Titel
           // "Heute"/"Morgen" überspannen die Spalten Wochentag und Datum
           if (is_today) {
             it.print(X0, ry, f, TextAlign::TOP_LEFT, "Heute");
@@ -625,7 +625,7 @@ font:
   - {file: "gfonts://Arimo@400", id: f_11, size: 11, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
   - {file: "gfonts://Arimo@700", id: f_14b, size: 14, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
   - {file: "gfonts://Arimo@700", id: f_13b, size: 13, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "gfonts://Arimo@400", id: f_16, size: 16, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Arimo@700", id: f_17b, size: 17, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
   - {file: "gfonts://Arimo@700", id: f_16b, size: 16, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
   - {file: "gfonts://Arimo@700", id: f_20b, size: 20, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
   - {file: "gfonts://Arimo@700", id: f_26b, size: 26, glyphs: "Kein Vrbdug"}

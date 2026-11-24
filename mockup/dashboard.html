@@ -314,17 +314,17 @@ function drawCal(s, y0) {
   let h = hline(y0) + rail(y0, 'calendar-month-outline');
   if (!s.cal.length) return h + tx(X0, y0 + 6, 'Keine Termine in den nächsten Tagen', { size: 13 });
   // Spalten (für große und kleine Zeilen gleich): Wochentag | Datum rechtsbündig | Uhrzeit rechtsbündig | Titel
-  const X_DATE = X0 + 56, X_TIME = X0 + 102, X_TITLE = X0 + 108;
+  const X_DATE = X0 + 62, X_TIME = X0 + 113, X_TITLE = X0 + 119;
   // groß: nur heute und morgen
   let y = y0 + 5;
   for (const ev of s.cal) {
-    const today = ev.day === 'Heute', big = today || ev.day === 'Morgen', rh = big ? 20 : 15;
+    const big = ev.day === 'Heute' || ev.day === 'Morgen', rh = big ? 21 : 16;   // heute und morgen groß und fett
     if (y + rh > 401) break;   // kein Platz mehr
-    const size = big ? 16 : 12, [wd, date] = ev.day.split(' ');
-    h += tx(X0, y, wd, { size, bold: today });
+    const size = big ? 17 : 13, [wd, date] = ev.day.split(' ');
+    h += tx(X0, y, wd, { size, bold: big });
     if (date) h += tx(X_DATE, y, date, { size, align: 'TR' });
-    h += tx(X_TIME, y, ev.time, { size, align: 'TR', bold: today });
-    h += tx(X_TITLE, y, ev.title, { size: big ? 16 : 13, bold: today, maxw: W - 4 - X_TITLE });
+    h += tx(X_TIME, y, ev.time, { size, align: 'TR', bold: big });
+    h += tx(X_TITLE, y, ev.title, { size: big ? 17 : 14, bold: big, maxw: W - 4 - X_TITLE });
     y += rh;
   }
   return h;
