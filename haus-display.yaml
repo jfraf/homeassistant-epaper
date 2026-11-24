@@ -462,12 +462,16 @@ display:
           const long n = hd::days_from_civil(e.year, e.month, e.day);
           const long diff = now.is_valid() ? n - today_n : 99;
           const bool is_today = diff <= 0;  // auch bereits laufende mehrtägige Termine
-          char day[16];
-          if (is_today) snprintf(day, sizeof(day), "Heute");
-          else if (diff == 1) snprintf(day, sizeof(day), "Morgen");
-          else snprintf(day, sizeof(day), "%s %02d.%02d.", WD[((n + 4) % 7 + 7) % 7], e.day, e.month);
+          // Wochentag und Datum in eigenen Spalten (Datum rechtsbündig); "Heute"/"Morgen" überspannen beide
           const int ry = y + 5 + row * 15;
-          it.print(X0, ry, is_today ? id(f_sec) : id(f_12), TextAlign::TOP_LEFT, day);
+          if (is_today) {
+            it.print(X0, ry, id(f_sec), TextAlign::TOP_LEFT, "Heute");
+          } else if (diff == 1) {
+            it.print(X0, ry, id(f_12), TextAlign::TOP_LEFT, "Morgen");
+          } else {
+            it.print(X0, ry, id(f_12), TextAlign::TOP_LEFT, WD[((n + 4) % 7 + 7) % 7]);
+            it.printf(X0 + 56, ry, id(f_12), TextAlign::TOP_RIGHT, "%02d.%02d.", e.day, e.month);
+          }
           if (!e.time.empty())
             it.print(X0 + 90, ry, is_today ? id(f_sec) : id(f_12), TextAlign::TOP_RIGHT, e.time.c_str());
           font::Font *tf = is_today ? id(f_13b) : id(f_13);
