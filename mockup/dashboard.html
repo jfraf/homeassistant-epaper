@@ -76,18 +76,15 @@
 <body>
 <main>
   <section class="controls">
-    <h1>E-Paper-Dashboard: Seite „Übersicht“ (Entwurf 2 mit Kalender)</h1>
-    <p>Mockup im Maßstab des Displays: 300 × 400 px hochkant, nur Schwarz und Weiß. Neu: Termine im unteren Fünftel, Auto und PV kompakter, Garage und Auto (Türen/Fenster) erscheinen nur noch im Block „Fenster &amp; Türen“, wenn sie nicht geschlossen sind. Alle Werte und Termine sind Beispiele.</p>
+    <h1>E-Paper-Dashboard: Seite „Übersicht“ (Entwurf 3)</h1>
+    <p>Mockup im Maßstab des Displays: 300 × 400 px hochkant, nur Schwarz und Weiß. Die Blöcke fließen von oben, die Termine bekommen den Rest (mindestens 5 Zeilen). Kategorien stehen hochkant am linken Rand, Garage und Auto erscheinen nur, wenn sie offen sind. Alle Werte und Termine sind Beispiele.</p>
     <div class="scen" id="scen"></div>
-    <div class="zoomrow" id="layout" style="margin-bottom:10px">Layout
-      <button data-l="fix" aria-pressed="true">A: feste Blöcke</button><button data-l="flow">B: Kalender nutzt freien Platz</button>
-    </div>
     <div class="zoomrow" id="zoom">Zoom
       <button data-z="1">1×</button><button data-z="2" aria-pressed="true">2×</button><button data-z="3">3×</button>
     </div>
     <div class="src">
-      <strong>Aufteilung (Layout A)</strong><br>
-      0–28 Kopfzeile · 28–190 Fenster &amp; Türen, Garage, Auto offen, Waschmaschine · 191–255 Auto · 256–319 PV · 320–400 Termine (80 px = 1/5)<br><br>
+      <strong>Höhen</strong><br>
+      Kopfzeile 28 · Haus 33 bis 186 (je nach Lage) · Auto 52 · PV 52 · Termine: der Rest (mind. 5 Zeilen à 15 px)<br><br>
       <strong>Datenquellen</strong><br>
       Fenster/Türen: 12 HmIP-Kontakte, Balkontür mit Griffsensor (gekippt)<br>
       Garage: <code>cover.garage_garagentor_tor</code><br>
@@ -95,7 +92,7 @@
       Laden: <code>sensor.skoda_enyaq_batteriestand</code>, <code>…_reichweite</code>, <code>…_ladegrenze_in_prozent</code>, <code>…_ladekabel</code>, <code>…_ladestatus</code>, <code>…_ladeleistung</code>, <code>sensor.openwb_lademodus</code><br>
       PV: <code>sensor.solaredge_ac_power</code>, <code>sensor.solaredge_pv_dc_ertrag_heute</code>, Forecast.Solar (2 Dachflächen, summiert)<br>
       Waschmaschine (nur wenn <code>…_connected</code> an): Zustand, Programm, Fortschritt, Restlaufzeit<br>
-      Termine: Kalender aus Home Assistant (welche, ist noch offen), über einen Template-Sensor mit den nächsten Terminen
+      Termine: alle Kalender aus Home Assistant über den Template-Sensor <code>sensor.haus_display_termine</code> (siehe <code>homeassistant/haus_display_termine.yaml</code>)
     </div>
   </section>
 
@@ -172,80 +169,89 @@ const SCENARIOS = [
     wm: { op: 'Pause', program: 'Wolle' },
     ev: { soc: 55, range: 228, limit: 80, plugged: false, charging: false, power: 0, mode: 'Nur PV' },
     pv: { now: 0, today: 2.9, rest: 0, tomorrow: 4.4 }, cal: [] },
+  { id: 'offline', label: 'Keine Verbindung zu Home Assistant', note: 'Vollbild-Hinweis, wenn die Verbindung mehrere Minuten fehlt (vorher nur „keine Verbindung“ in der Kopfzeile)',
+    time: '14:37', date: 'Di 24.11.', offline: { since: '14:32', last: '14:27', wifi: true, rssi: -67, ip: '192.168.178.57' } },
 ];
 
-const W = 300;
-let layout = 'fix', current = SCENARIOS[0];
+const W = 300, X0 = 24, CW = 272;   // Inhalt beginnt rechts neben der Kategorien-Leiste
+let current = SCENARIOS[0];
 const fmt = v => v.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 // Text/Icon mit ESPHome-ähnlicher Ausrichtung (Arimo: Grundlinie bei ca. 0,85 em bei line-height 1)
 function tx(x, y, content, { size = 12, bold = false, align = 'TL', inv = false, icon = false, maxw = 0 } = {}) {
   const [v, hz] = [align.slice(0, -1), align.slice(-1)];
-  let top = y, tr = '';
-  if (v === 'C') tr = 'translateY(-50%)';
+  let top = y; const tr = [];
+  if (v === 'C') tr.push('translateY(-50%)');
   else if (v === 'B') top = y - size;
   else if (v === 'Base') top = y - 0.85 * size;
+  if (hz === 'C') tr.push('translateX(-50%)');
   const pos = hz === 'R' ? `right:${W - x}px` : `left:${x}px`;
   const clip = maxw ? `max-width:${maxw}px; overflow:hidden; text-overflow:ellipsis;` : '';
-  const style = `top:${top}px; ${pos}; font-size:${size}px; line-height:1.15; margin-top:${v === 'C' ? 0 : -0.075 * size}px; white-space:nowrap; font-weight:${bold ? 700 : 400}; ${clip} ${inv ? 'color:var(--paper);' : ''} ${tr ? `transform:${tr};` : ''}`;
+  const style = `top:${top}px; ${pos}; font-size:${size}px; line-height:1.15; margin-top:${v === 'C' ? 0 : -0.075 * size}px; white-space:nowrap; font-weight:${bold ? 700 : 400}; ${clip} ${inv ? 'color:var(--paper);' : ''} ${tr.length ? `transform:${tr.join(' ')};` : ''}`;
   return `<div class="abs" style="${style}">${icon ? `<i class="mdi mdi-${content}"></i>` : content}</div>`;
 }
 const box_ = (x, y, w, h, filled) => `<div class="abs" style="left:${x}px; top:${y}px; width:${w}px; height:${h}px; ${filled ? 'background:var(--ink);' : 'border:1px solid var(--ink);'}"></div>`;
 const hline = y => `<div class="abs" style="left:4px; top:${y}px; width:${W - 8}px; height:1px; background:var(--ink)"></div>`;
-const section = (y, icon, title, right) =>
-  tx(6, y, icon, { size: 14, icon: true }) + tx(23, y + 1, title, { size: 12, bold: true }) + (right ? tx(W - 6, y + 1, right, { size: 11, align: 'TR' }) : '');
+// Kategorie am linken Rand: Icon oben, Text darunter um 90° nach links gedreht (nur wenn der Block hoch genug ist)
+function rail(yTop, yBottom, icon, text, minH) {
+  let h = tx(5, yTop + 4, icon, { size: 14, icon: true });
+  if (yBottom - yTop >= minH)
+    h += `<div class="abs" style="left:6px; top:${yTop + 22}px; writing-mode:vertical-rl; transform:rotate(180deg); font-size:11px; line-height:1; font-weight:700; letter-spacing:.06em; white-space:nowrap">${text}</div>`;
+  return h;
+}
 const cell = (x, y, w, hh, inv, icon, label, value) =>
-  box_(x, y, w, hh, inv) + tx(x + 5, y + hh / 2, icon, { size: 26, align: 'CL', inv, icon: true })
-  + tx(x + 37, y + hh / 2 - 1, label, { size: 11, align: 'BL', inv }) + tx(x + 37, y + hh / 2, value, { size: 15, bold: true, inv });
+  box_(x, y, w, hh, inv) + tx(x + 4, y + hh / 2, icon, { size: 26, align: 'CL', inv, icon: true })
+  + tx(x + 34, y + hh / 2 - 1, label, { size: 11, align: 'BL', inv }) + tx(x + 34, y + hh / 2, value, { size: 15, bold: true, inv });
+const HATCH = `<svg><defs><pattern id="hatch" width="3" height="10" patternUnits="userSpaceOnUse"><rect width="1" height="10" fill="#000"/></pattern></defs><rect width="100%" height="100%" fill="url(#hatch)"/></svg>`;
+// Balken: voll bis "solid" %, schraffiert bis "hatched" %, optional dicker Strich bei "tick" % (innerhalb des Balkens)
+function bar(y, solid, hatched, tick) {
+  let h = `<div class="abs bar" style="left:${X0}px; top:${y}px; width:${CW}px; height:10px"><div class="f" style="width:${solid}%"></div>`;
+  if (hatched > solid) h += `<div class="rest" style="left:${solid}%; width:${hatched - solid}%">${HATCH}</div>`;
+  if (tick != null) h += `<div class="tick" style="left:calc(${tick}% - 1px); top:0; bottom:0; ${solid > tick ? 'background:var(--paper);' : ''}"></div>`;
+  return h + `</div>`;
+}
 
-// ---------- Block oben: Fenster & Türen, Garage, Auto offen, Waschmaschine ----------
-// Layout A: Bereich fest 51..189, Waschmaschine unten verankert. Layout B: alles fließt von oben.
-// Rückgabe: y der nächsten Trennlinie.
-function drawTop(s) {
-  const TOP = 51, BOTTOM = 189, fix = layout === 'fix';
-  let h = '';
-  const wm = s.wm;
+// ---------- Haus: Garage, Auto offen, Fenster & Türen, Waschmaschine ----------
+// Fließt von oben; Rückgabe: y der nächsten Trennlinie.
+function drawTop(s, y0) {
+  const LIMIT = 214;   // bis hierhin darf der Block reichen, damit unten 5 Termine bleiben
+  let h = '', y = y0 + 4;
+  const wm = s.wm, wmH = wm ? 43 : 0;
   const gOpen = s.garage !== 'zu';
   const issues = [s.car.doors && 'Tür', s.car.windows && 'Fenster', s.car.trunk && 'Klappe', s.car.hood && 'Haube'].filter(Boolean);
-  const nOpen = s.openings.filter(o => o.state !== '?').length + (gOpen ? 1 : 0) + (issues.length ? 1 : 0);
-  const nUnk = s.openings.filter(o => o.state === '?').length;
-  h += section(33, 'window-closed-variant', 'FENSTER &amp; TÜREN', [nOpen && `${nOpen} offen`, nUnk && `${nUnk} unklar`].filter(Boolean).join(' · '));
+  const total = s.openings.length;
 
-  let y = TOP;
-  const wmH = wm ? 43 : 0;
-  if (nOpen + nUnk === 0) {
-    // Alles geschlossen: A mittig im freien Bereich, B kompakte Zeile
-    const cy = fix ? Math.round((TOP + BOTTOM - wmH) / 2) - 1 : TOP + 15;
-    h += tx(6, cy, 'check-circle', { size: 30, align: 'CL', icon: true });
-    h += tx(44, cy, 'Alles geschlossen', { size: 20, bold: true, align: 'CL' });
-    y = TOP + 33;
+  if (!gOpen && !issues.length && !total) {
+    h += tx(X0, y + 15, 'check-circle', { size: 30, align: 'CL', icon: true });
+    h += tx(X0 + 38, y + 15, 'Alles geschlossen', { size: 20, bold: true, align: 'CL' });
+    y += 33;
   } else {
     // Kacheln Garage / Auto (Höhe wie bisher), nur wenn nicht geschlossen
-    let cx = 4;
-    if (gOpen) { h += cell(cx, y, 144, 42, true, 'garage-open-variant', 'Garage', 'OFFEN'); cx += 148; }
+    let cx = X0;
+    if (gOpen) { h += cell(cx, y, 134, 42, true, 'garage-open-variant', 'Garage', 'OFFEN'); cx += 138; }
     if (issues.length) {
-      let label = 'Auto', value = `${issues[0]} offen`;
-      if (issues.length > 1) { value = `${issues.length} offen`; if (issues.join(', ').length <= 18) label = issues.join(', '); }
-      h += cell(cx, y, 144, 42, true, 'car-door', label, value); cx += 148;
+      const list = issues.join(', ');
+      let label = 'Auto offen', value = list;
+      if (list.length > 12) { value = `${issues.length} offen`; label = list.length <= 19 ? list : 'Auto'; }
+      h += cell(cx, y, 134, 42, true, 'car-door', label, value); cx += 138;
     }
-    if (cx > 4) y += 45;
+    if (cx > X0) y += 45;
     // Chips für Fenster/Türen
-    const total = s.openings.length;
     if (total) {
-      const rowsMax = Math.max(1, Math.floor((BOTTOM - y - wmH) / 25));
+      const rowsMax = Math.max(1, Math.floor((LIMIT - y - wmH) / 25));
       const max = rowsMax * 2, shown = total > max ? max - 1 : total;
       const ordered = [...s.openings.filter(o => o.state !== '?'), ...s.openings.filter(o => o.state === '?')].slice(0, shown);
       ordered.forEach((o, k) => {
-        const x = 4 + (k % 2) * 148, yy = y + Math.floor(k / 2) * 25, unk = o.state === '?';
-        h += box_(x, yy, 144, 22, !unk);
+        const x = X0 + (k % 2) * 138, yy = y + Math.floor(k / 2) * 25, unk = o.state === '?';
+        h += box_(x, yy, 134, 22, !unk);
         h += tx(x + 4, yy + 11, unk ? 'help-circle-outline' : o.door ? 'door-open' : 'window-open-variant', { size: 16, align: 'CL', inv: !unk, icon: true });
         h += tx(x + 23, yy + 11, o.name, { size: 13, align: 'CL', inv: !unk });
         const suf = unk ? 'unklar' : o.state === 'gekippt' ? 'gekippt' : '';
-        if (suf) h += tx(x + 140, yy + 11, suf, { size: 11, align: 'CR', inv: !unk });
+        if (suf) h += tx(x + 130, yy + 11, suf, { size: 11, align: 'CR', inv: !unk });
       });
       if (total > max) {
-        const k = shown, x = 4 + (k % 2) * 148, yy = y + Math.floor(k / 2) * 25;
-        h += box_(x, yy, 144, 22, false) + tx(x + 6, yy + 11, `+${total - shown} weitere`, { size: 13, align: 'CL' });
+        const k = shown, x = X0 + (k % 2) * 138, yy = y + Math.floor(k / 2) * 25;
+        h += box_(x, yy, 134, 22, false) + tx(x + 6, yy + 11, `+${total - shown} weitere`, { size: 13, align: 'CL' });
       }
       y += Math.ceil(Math.min(total, max) / 2) * 25;
     }
@@ -253,80 +259,98 @@ function drawTop(s) {
 
   // Waschmaschine (nur wenn erreichbar)
   if (wm) {
-    const wy = fix ? BOTTOM - 40 : y, hh = 40, alert = ['Finished', 'ActionRequired', 'Error'].includes(wm.op);
+    const hh = 40, alert = ['Finished', 'ActionRequired', 'Error'].includes(wm.op);
     let l1 = 'Waschmaschine', l2 = 'bereit', r = '';
     if (wm.op === 'Run') { l1 += ` · ${wm.progress} %`; l2 = wm.program; r = `noch ${wm.remaining} h`; }
     else if (wm.op === 'DelayedStart') { l1 = 'Startvorwahl'; l2 = wm.program; r = `fertig in ${wm.finish} h`; }
     else if (wm.op === 'Pause') { l2 = `${wm.program} (Pause)`; }
     else if (wm.op === 'Finished') { l2 = 'fertig – ausräumen!'; }
-    h += box_(4, wy, 292, hh, alert);
-    h += tx(9, wy + hh / 2, alert ? 'washing-machine-alert' : 'washing-machine', { size: 26, align: 'CL', inv: alert, icon: true });
-    h += tx(41, wy + hh / 2 - 1, l1, { size: 11, align: 'BL', inv: alert });
-    h += tx(41, wy + hh / 2, l2, { size: 15, bold: true, inv: alert });
-    if (r) h += tx(290, wy + hh / 2, r, { size: 16, bold: true, align: 'CR', inv: alert });
+    h += box_(X0, y, CW, hh, alert);
+    h += tx(X0 + 4, y + hh / 2, alert ? 'washing-machine-alert' : 'washing-machine', { size: 26, align: 'CL', inv: alert, icon: true });
+    h += tx(X0 + 34, y + hh / 2 - 1, l1, { size: 11, align: 'BL', inv: alert });
+    h += tx(X0 + 34, y + hh / 2, l2, { size: 15, bold: true, inv: alert });
+    if (r) h += tx(290, y + hh / 2, r, { size: 16, bold: true, align: 'CR', inv: alert });
     y += 43;
   }
-  return [h, fix ? 191 : y];
+  h += rail(y0, y, 'home-outline', 'HAUS', 58);
+  return [h, y];
 }
 
-// ---------- Auto (kompakt, 65 px inkl. Trennlinie) ----------
+// ---------- Auto (52 px inkl. Trennlinie) ----------
 function drawAuto(s, y0) {
   const e = s.ev;
-  let h = hline(y0);
-  h += section(y0 + 4, 'car-electric', 'AUTO', `${e.range} km · Ladelimit ${e.limit} %`);
-  h += tx(6, y0 + 47, `${e.soc}<span style="font-size:16px; margin-left:3px">%</span>`, { size: 28, bold: true, align: 'BaseL' });
+  let h = hline(y0) + rail(y0, y0 + 52, 'car-electric', 'AUTO', 52);
+  h += tx(X0, y0 + 31, `${e.soc}<span style="font-size:16px; margin-left:3px">%</span><span style="font-size:11px; font-weight:400; margin-left:8px">${e.range} km</span>`, { size: 28, bold: true, align: 'BaseL' });
   if (!e.plugged) {
-    h += tx(152, y0 + 34, 'power-plug-off-outline', { size: 22, align: 'CL', icon: true });
-    h += tx(180, y0 + 34, 'nicht angesteckt', { size: 14, align: 'CL' });
+    h += tx(160, y0 + 20, 'power-plug-off-outline', { size: 22, align: 'CL', icon: true });
+    h += tx(188, y0 + 20, 'nicht angesteckt', { size: 14, align: 'CL' });
   } else {
-    h += tx(152, y0 + 34, 'ev-plug-type2', { size: 22, align: 'CL', icon: true });
-    h += tx(180, y0 + 26, e.mode, { size: 14, bold: true, align: 'CL' });
-    h += tx(180, y0 + 42, e.charging ? `lädt ${fmt(e.power)} kW` : 'lädt nicht', { size: 12, align: 'CL' });
+    h += tx(160, y0 + 20, 'ev-plug-type2', { size: 22, align: 'CL', icon: true });
+    h += tx(188, y0 + 12, e.mode, { size: 14, bold: true, align: 'CL' });
+    h += tx(188, y0 + 28, e.charging ? `lädt ${fmt(e.power)} kW` : 'lädt nicht', { size: 12, align: 'CL' });
   }
-  h += `<div class="abs bar" style="left:6px; top:${y0 + 52}px; width:288px; height:8px"><div class="f" style="width:${e.soc}%"></div><div class="tick" style="left:${e.limit}%; top:-3px; bottom:-3px"></div></div>`;
-  return [h, y0 + 65];
+  // voll = Akkustand, schraffiert = bis zum Ladelimit, dicker Strich = Ladelimit
+  h += bar(y0 + 38, e.soc, e.limit, e.limit);
+  return [h, y0 + 52];
 }
 
-// ---------- PV (kompakt, 64 px inkl. Trennlinie) ----------
+// ---------- PV (52 px inkl. Trennlinie) ----------
 function drawPV(s, y0) {
   const p = s.pv, night = p.rest < 0.05;
-  let h = hline(y0);
-  h += section(y0 + 4, 'solar-power-variant', 'PV', `heute ${fmt(p.today)} kWh`);
+  let h = hline(y0) + rail(y0, y0 + 52, 'solar-power-variant', 'PV', 42);
   const [num, unit] = p.now < 1 ? [String(Math.round(p.now * 1000)), 'W'] : [fmt(p.now), 'kW'];
-  h += tx(6, y0 + 47, `${num}<span style="font-size:16px; margin-left:4px">${unit}</span>`, { size: 28, bold: true, align: 'BaseL' });
-  h += tx(152, y0 + 21, night ? 'Prognose morgen' : 'noch erwartet heute', { size: 11 });
-  h += tx(152, y0 + 33, `ca. ${fmt(night ? p.tomorrow : p.rest)} kWh`, { size: 16, bold: true });
+  h += tx(X0, y0 + 31, `${num}<span style="font-size:16px; margin-left:4px">${unit}</span>`, { size: 28, bold: true, align: 'BaseL' });
+  h += tx(160, y0 + 6, `heute ${fmt(p.today)} kWh erzeugt`, { size: 11 });
+  h += tx(160, y0 + 19, night ? `morgen ca. ${fmt(p.tomorrow)} kWh` : `noch ca. ${fmt(p.rest)} kWh`, { size: 14, bold: true });
+  // voll = erzeugt, schraffiert = heute noch erwartet
   const total = p.today + (night ? 0 : p.rest), done = total ? p.today / total * 100 : 0;
-  h += `<div class="abs bar" style="left:6px; top:${y0 + 52}px; width:288px; height:8px"><div class="f" style="width:${done}%"></div>`
-     + (night ? '' : `<div class="rest" style="left:${done}%; width:${100 - done}%"><svg><defs><pattern id="hatch" width="3" height="10" patternUnits="userSpaceOnUse"><rect width="1" height="10" fill="#000"/></pattern></defs><rect width="100%" height="100%" fill="url(#hatch)"/></svg></div>`)
-     + `</div>`;
-  return [h, y0 + 64];
+  h += bar(y0 + 38, done, night ? done : 100, null);
+  return [h, y0 + 52];
 }
 
-// ---------- Termine (ab y0 bis zum unteren Rand; Layout A: 80 px = 4 Zeilen) ----------
+// ---------- Termine (ab y0 bis zum unteren Rand) ----------
 function drawCal(s, y0) {
-  let h = hline(y0);
-  const rows = Math.floor((400 - (y0 + 20)) / 15);
-  const more = s.cal.length - rows;
-  h += section(y0 + 4, 'calendar-month-outline', 'TERMINE', more > 0 ? `+${more} weitere` : '');
-  if (!s.cal.length) return h + tx(6, y0 + 24, 'Keine Termine in den nächsten Tagen', { size: 13 });
+  let h = hline(y0) + rail(y0, 400, 'calendar-month-outline', 'TERMINE', 76);
+  const rows = Math.floor((400 - (y0 + 4)) / 15);
+  if (!s.cal.length) return h + tx(X0, y0 + 6, 'Keine Termine in den nächsten Tagen', { size: 13 });
   s.cal.slice(0, rows).forEach((ev, i) => {
-    const y = y0 + 21 + i * 15, today = ev.day === 'Heute';
-    h += tx(6, y, ev.day, { size: 12, bold: today });
-    h += tx(98, y, ev.time, { size: 12, align: 'TR', bold: today });
-    h += tx(104, y, ev.title, { size: 13, bold: today, maxw: 190 });
+    const y = y0 + 5 + i * 15, today = ev.day === 'Heute';
+    h += tx(X0, y, ev.day, { size: 12, bold: today });
+    h += tx(X0 + 90, y, ev.time, { size: 12, align: 'TR', bold: today });
+    h += tx(X0 + 96, y, ev.title, { size: 13, bold: today, maxw: W - 4 - (X0 + 96) });
   });
+  return h;
+}
+
+// ---------- Vollbild: keine Verbindung zu Home Assistant ----------
+function drawOffline(s) {
+  const o = s.offline, M = W / 2;
+  let h = box_(0, 0, W, 28, true);
+  h += tx(7, 14, s.date, { size: 15, bold: true, align: 'CL', inv: true });
+  h += tx(W - 7, 14, s.time, { size: 15, align: 'CR', inv: true });
+  h += tx(M, 112, 'lan-disconnect', { size: 80, align: 'CC', icon: true });
+  h += tx(M, 182, 'Keine Verbindung', { size: 26, bold: true, align: 'CC' });
+  h += tx(M, 210, 'zu Home Assistant', { size: 18, align: 'CC' });
+  h += tx(M, 246, `seit ${o.since} Uhr`, { size: 20, bold: true, align: 'CC' });
+  h += hline(290);
+  h += tx(X0, 310, o.wifi ? 'wifi' : 'wifi-off', { size: 22, align: 'CL', icon: true });
+  h += tx(X0 + 30, 302, o.wifi ? `WLAN verbunden (${String(o.rssi).replace('-', '−')} dBm)` : 'WLAN nicht verbunden', { size: 13, bold: true, align: 'CL' });
+  h += tx(X0 + 30, 319, o.wifi ? `IP ${o.ip}` : 'Fallback-Hotspot „Haus-Display Fallback“ aktiv', { size: 12, align: 'CL' });
+  h += tx(X0, 346, 'history', { size: 22, align: 'CL', icon: true });
+  h += tx(X0 + 30, 338, `Letzte Daten: ${o.last} Uhr`, { size: 13, bold: true, align: 'CL' });
+  h += tx(X0 + 30, 355, 'Die Anzeige kehrt von selbst zurück', { size: 12, align: 'CL' });
   return h;
 }
 
 function render(s) {
   current = s;
+  if (s.offline) { document.getElementById('epd').innerHTML = drawOffline(s); return; }
   let h = '', part, y;
   // Kopfzeile
   h += box_(0, 0, W, 28, true);
   h += tx(7, 14, s.date, { size: 15, bold: true, align: 'CL', inv: true });
   h += tx(W - 7, 14, `Stand ${s.time}`, { size: 15, align: 'CR', inv: true });
-  [part, y] = drawTop(s); h += part;
+  [part, y] = drawTop(s, 28); h += part;
   [part, y] = drawAuto(s, y); h += part;
   [part, y] = drawPV(s, y); h += part;
   h += drawCal(s, y);
@@ -343,12 +367,6 @@ SCENARIOS.forEach((s, i) => {
   box.appendChild(b);
 });
 render(SCENARIOS[0]);
-
-// Layout-Variante
-document.querySelectorAll('#layout button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('#layout button').forEach(x => x.setAttribute('aria-pressed', x === b));
-  layout = b.dataset.l; render(current);
-});
 
 // Zoom
 const epd = document.getElementById('epd');

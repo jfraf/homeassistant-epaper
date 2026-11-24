@@ -1,0 +1,60 @@
+# Template-Sensor für das Haus-Display: die nächsten Termine aus ALLEN Kalendern in Home Assistant.
+#
+# Ergebnis: sensor.haus_display_termine
+#   Zustand:          Anzahl der gelieferten Termine
+#   Attribut "text":  eine Zeile pro Termin, Format  JJJJ-MM-TT|HH:MM|Titel
+#                     (ganztägige Termine ohne Uhrzeit: JJJJ-MM-TT||Titel), nach Beginn sortiert
+#
+# Einbau:
+#   1. Datei /config/configuration.yaml öffnen (z. B. mit dem Add-on "File editor" oder "Studio Code Server").
+#   2a. Gibt es dort noch KEINEN Eintrag "template:", den ganzen Block unten ans Ende der Datei kopieren.
+#   2b. Gibt es schon "template:", nur den Teil ab "  - trigger:" (ohne die Zeile "template:") als weiteren
+#       Listeneintrag darunter einfügen. Steht dort "template: !include templates.yaml" (o. ä.), gehört der
+#       Teil ab "- trigger:" in diese Datei, dann zwei Leerzeichen weniger eingerückt.
+#   3. Entwicklerwerkzeuge → YAML → "Konfiguration prüfen", dann "Template-Entitäten" neu laden
+#      (beim allerersten "template:"-Eintrag: Home Assistant neu starten).
+#   4. Entwicklerwerkzeuge → Zustände → sensor.haus_display_termine: Im Attribut "text" müssen die Termine stehen.
+#
+# Einstellbar: "days" (wie weit voraus) und die Zahl hinter "ns.n <" (maximale Anzahl Termine).
+
+template:
+  - trigger:
+      - trigger: time_pattern
+        minutes: "/5"
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+    action:
+      - action: calendar.get_events
+        target:
+          entity_id: "{{ states.calendar | map(attribute='entity_id') | list }}"
+        data:
+          duration:
+            days: 14
+        response_variable: agenda
+    sensor:
+      - name: Haus-Display Termine
+        unique_id: haus_display_termine
+        icon: mdi:calendar-month-outline
+        state: >-
+          {% set ns = namespace(n=0) %}
+          {% for cal in agenda.values() %}{% set ns.n = ns.n + (cal.events | count) %}{% endfor %}
+          {{ [ns.n, 12] | min }}
+        attributes:
+          text: >-
+            {% set all = namespace(ev=[]) %}
+            {% for cal in agenda.values() %}
+              {% for e in cal.events %}
+                {% set all.ev = all.ev + [{'start': e.start | string, 'summary': e.summary | default('') | string}] %}
+              {% endfor %}
+            {% endfor %}
+            {% set ns = namespace(n=0, lines=[]) %}
+            {% for e in all.ev | sort(attribute='start') %}
+              {% if ns.n < 12 %}
+                {% set title = e.summary | replace('|', '/') | replace('\n', ' ') | trim | truncate(48, true, '…', 0) %}
+                {% set ns.lines = ns.lines + [e.start[:10] ~ '|' ~ e.start[11:16] ~ '|' ~ title] %}
+                {% set ns.n = ns.n + 1 %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.lines | join('\n') }}

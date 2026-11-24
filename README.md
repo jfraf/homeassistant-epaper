@@ -30,7 +30,8 @@ E-Paper-Dashboard für Home Assistant auf Basis von ESPHome. Die Hardware stammt
 - `test/led-apa106/`: Arduino-Nano-Testprogramm für die LEDs
 - `components/epaper_spi/`: Kopie von [parkghost/esphome-epaper](https://github.com/parkghost/esphome-epaper) (Commit `cf145a7`, Apache-2.0), ergänzt um das Modell `waveshare-4.2in-v1` (auf dem Gerät abgestimmte Teilrefresh-Waveform, mehrere Durchgänge, Einmal-Blinken, Fenster; siehe `models/uc8176.py` und `epaper_spi_uc8176.*`)
 - `test/epaper-partial.yaml`: Teilrefresh-Test mit diesem `epaper_spi`, Modell per Substitution `model` wählbar; `test/secrets.yaml` ist ein Symlink auf `../secrets.yaml`
-- `mockup/dashboard.html`: HTML-Skizze der Übersichtsseite
+- `mockup/dashboard.html`: HTML-Skizze der Übersichtsseite (Entwurf 3: Termine, hochkant gestellte Kategorien, Vollbild „keine Verbindung“; auf dem Display noch nicht umgesetzt)
+- `homeassistant/haus_display_termine.yaml`: Template-Sensor für Home Assistant, liefert die nächsten Termine aller Kalender (Einbau siehe Kommentar in der Datei)
 
 Für das ESPHome-Dashboard muss `haus_display.h` neben der YAML liegen; `epaper_spi` wird aus diesem Repo geladen. Schrift: Arimo (Google Fonts), normal und fett.
 
