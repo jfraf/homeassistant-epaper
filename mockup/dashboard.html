@@ -316,7 +316,10 @@ function drawCal(s, y0) {
   if (!s.cal.length) return h + tx(X0, y0 + 6, 'Keine Termine in den nächsten Tagen', { size: 13 });
   s.cal.slice(0, rows).forEach((ev, i) => {
     const y = y0 + 5 + i * 15, today = ev.day === 'Heute';
-    h += tx(X0, y, ev.day, { size: 12, bold: today });
+    // Wochentag und Datum in eigenen Spalten (Datum rechtsbündig); "Heute"/"Morgen" überspannen beide
+    const [wd, date] = ev.day.split(' ');
+    h += tx(X0, y, wd, { size: 12, bold: today });
+    if (date) h += tx(X0 + 56, y, date, { size: 12, align: 'TR' });
     h += tx(X0 + 90, y, ev.time, { size: 12, align: 'TR', bold: today });
     h += tx(X0 + 96, y, ev.title, { size: 13, bold: today, maxw: W - 4 - (X0 + 96) });
   });
