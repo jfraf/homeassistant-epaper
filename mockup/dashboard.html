@@ -77,7 +77,7 @@
 <main>
   <section class="controls">
     <h1>E-Paper-Dashboard: Seite „Übersicht“ (Entwurf 3)</h1>
-    <p>Mockup im Maßstab des Displays: 300 × 400 px hochkant, nur Schwarz und Weiß. Die Blöcke fließen von oben, die Termine bekommen den Rest (mindestens 5 Zeilen). Kategorien stehen hochkant am linken Rand, Garage und Auto erscheinen nur, wenn sie offen sind. Alle Werte und Termine sind Beispiele.</p>
+    <p>Mockup im Maßstab des Displays: 300 × 400 px hochkant, nur Schwarz und Weiß. Die Blöcke fließen von oben, die Termine bekommen den Rest (mindestens 5 Zeilen). Die Kategorien sind nur noch Icons am linken Rand, Garage und Auto erscheinen nur, wenn sie offen sind. Alle Werte und Termine sind Beispiele.</p>
     <div class="scen" id="scen"></div>
     <div class="zoomrow" id="zoom">Zoom
       <button data-z="1">1×</button><button data-z="2" aria-pressed="true">2×</button><button data-z="3">3×</button>
@@ -192,13 +192,8 @@ function tx(x, y, content, { size = 12, bold = false, align = 'TL', inv = false,
 }
 const box_ = (x, y, w, h, filled) => `<div class="abs" style="left:${x}px; top:${y}px; width:${w}px; height:${h}px; ${filled ? 'background:var(--ink);' : 'border:1px solid var(--ink);'}"></div>`;
 const hline = y => `<div class="abs" style="left:4px; top:${y}px; width:${W - 8}px; height:1px; background:var(--ink)"></div>`;
-// Kategorie am linken Rand: Icon oben, Text darunter um 90° nach links gedreht (nur wenn der Block hoch genug ist)
-function rail(yTop, yBottom, icon, text, minH) {
-  let h = tx(5, yTop + 4, icon, { size: 14, icon: true });
-  if (yBottom - yTop >= minH)
-    h += `<div class="abs" style="left:6px; top:${yTop + 22}px; writing-mode:vertical-rl; transform:rotate(180deg); font-size:11px; line-height:1; font-weight:700; letter-spacing:.06em; white-space:nowrap">${text}</div>`;
-  return h;
-}
+// Kategorie am linken Rand: nur ein Icon oben im Block
+const rail = (yTop, icon) => tx(2, yTop + 5, icon, { size: 19, icon: true });
 const cell = (x, y, w, hh, inv, icon, label, value) =>
   box_(x, y, w, hh, inv) + tx(x + 4, y + hh / 2, icon, { size: 26, align: 'CL', inv, icon: true })
   + tx(x + 34, y + hh / 2 - 1, label, { size: 11, align: 'BL', inv }) + tx(x + 34, y + hh / 2, value, { size: 15, bold: true, inv });
@@ -272,14 +267,14 @@ function drawTop(s, y0) {
     if (r) h += tx(290, y + hh / 2, r, { size: 16, bold: true, align: 'CR', inv: alert });
     y += 43;
   }
-  h += rail(y0, y, 'home-outline', 'HAUS', 58);
+  h += rail(y0, 'home-outline');
   return [h, y];
 }
 
 // ---------- Auto (52 px inkl. Trennlinie) ----------
 function drawAuto(s, y0) {
   const e = s.ev;
-  let h = hline(y0) + rail(y0, y0 + 52, 'car-electric', 'AUTO', 52);
+  let h = hline(y0) + rail(y0, 'car-electric');
   h += tx(X0, y0 + 31, `${e.soc}<span style="font-size:16px; margin-left:3px">%</span><span style="font-size:11px; font-weight:400; margin-left:8px">${e.range} km</span>`, { size: 28, bold: true, align: 'BaseL' });
   if (!e.plugged) {
     h += tx(160, y0 + 20, 'power-plug-off-outline', { size: 22, align: 'CL', icon: true });
@@ -297,7 +292,7 @@ function drawAuto(s, y0) {
 // ---------- PV (52 px inkl. Trennlinie) ----------
 function drawPV(s, y0) {
   const p = s.pv, night = p.rest < 0.05;
-  let h = hline(y0) + rail(y0, y0 + 52, 'solar-power-variant', 'PV', 42);
+  let h = hline(y0) + rail(y0, 'solar-power-variant');
   const [num, unit] = p.now < 1 ? [String(Math.round(p.now * 1000)), 'W'] : [fmt(p.now), 'kW'];
   h += tx(X0, y0 + 31, `${num}<span style="font-size:16px; margin-left:4px">${unit}</span>`, { size: 28, bold: true, align: 'BaseL' });
   h += tx(160, y0 + 6, `heute ${fmt(p.today)} kWh erzeugt`, { size: 11 });
@@ -310,7 +305,7 @@ function drawPV(s, y0) {
 
 // ---------- Termine (ab y0 bis zum unteren Rand) ----------
 function drawCal(s, y0) {
-  let h = hline(y0) + rail(y0, 400, 'calendar-month-outline', 'TERMINE', 76);
+  let h = hline(y0) + rail(y0, 'calendar-month-outline');
   const rows = Math.floor((400 - (y0 + 4)) / 15);
   if (!s.cal.length) return h + tx(X0, y0 + 6, 'Keine Termine in den nächsten Tagen', { size: 13 });
   s.cal.slice(0, rows).forEach((ev, i) => {
