@@ -2,6 +2,7 @@
 # Hardware: LOLIN D32 (ESP32) + Waveshare 4.2" e-Paper V1 (UC8176, 400x300 s/w), hochkant montiert
 #           4 Taster nach +3V3: Taste 1-4 = GPIO 12 / 14 / 13 / 15 (am Gehäuse von links nach rechts)
 #           2 × RGB-LED APA106-F8 / P9823 an GPIO27 (in Reihe)
+#           LED 1 pulsiert rot, solange Fenster, Türen, Garage oder Auto offen sind; LED 2 ist noch frei
 #
 # Aktualisierung:
 #   - sofort (2 s entprellt): Fenster/Türen, Garage, Autotüren/-fenster, Ladekabel/-status/-modus,
@@ -102,6 +103,9 @@ globals:
   - id: last_data_ts # letztes Zeichnen mit bestehender Verbindung (Epoch, 0 = nie)
     type: uint32_t
     initial_value: '0'
+  - id: led_alarm    # LED 1 zeigt gerade "etwas ist offen"
+    type: bool
+    initial_value: 'false'
   - id: force_flash  # nächstes Update auf jeden Fall mit Einmal-Blinken (Tastendruck)
     type: bool
     initial_value: 'false'
@@ -480,8 +484,36 @@ script:
   - id: refresh
     mode: restart
     then:
+      - script.execute: update_leds
       - delay: 2s
       - script.execute: draw_safe
+
+  # LED 1: pulsiert rot, solange ein Fenster, eine Tür, die Garage oder das Auto offen ist
+  # (gekippt zählt als offen, unklare Zustände nicht). Geschaltet wird nur bei einem Wechsel.
+  - id: update_leds
+    then:
+      - lambda: |-
+          bool open = false;
+          for (binary_sensor::BinarySensor *s : std::initializer_list<binary_sensor::BinarySensor *>{
+                   id(c_haustuer), id(c_wohnzimmer), id(c_kueche), id(c_wc), id(c_bad_og), id(c_spielzimmer),
+                   id(c_korbinian), id(c_tobias), id(c_velux), id(c_mitte), id(c_bad_dg), id(car_doors),
+                   id(car_windows), id(car_trunk), id(car_hood)})
+            if (s->has_state() && s->state) open = true;
+          if (id(s_balkontuer).has_state() && (id(s_balkontuer).state == "open" || id(s_balkontuer).state == "tilted"))
+            open = true;
+          if (id(garage).has_state() && !hd::ha_missing(id(garage).state) && id(garage).state != "closed") open = true;
+          if (open == id(led_alarm)) return;
+          id(led_alarm) = open;
+          if (open) {
+            auto call = id(led_1).turn_on();
+            call.set_brightness(1.0f);
+            call.set_rgb(1.0f, 0.0f, 0.0f);
+            call.set_effect("Warnung");
+            call.perform();
+          } else {
+            auto call = id(led_1).turn_off();
+            call.perform();
+          }
 
   # Zeichnet, sobald kein Refresh mehr läuft (der Treiber verwirft Updates während eines laufenden Refreshs).
   # Ein bereits wartender Aufruf wird ersetzt (restart), es wird also immer der aktuellste Stand gezeichnet.
@@ -785,6 +817,12 @@ light:
         from: 1
         to: 1
     effects:
+      - pulse:
+          name: Warnung # sanftes Pulsieren zwischen 25 % und 100 %
+          transition_length: 1.2s
+          update_interval: 1.2s
+          min_brightness: 25%
+          max_brightness: 100%
       - pulse:
       - strobe:
   - platform: partition
