@@ -40,9 +40,9 @@ Refresh aus, wenn sich der angezeigte Wert ändert.
 
 Refresh-Arten (Treiber `components/epaper_spi`, Modell `waveshare-4.2in-v1`):
 
-- normal: Teilrefresh ohne Blinken in zwei Durchgängen (ca. 6 s)
-- jedes 10. Update (`flash_every`): „Einmal-Blinken“, das Bild invertiert genau einmal und Geisterbilder verschwinden
-- Voll-Refresh mit mehrfachem Blinken nur nach dem Start und täglich um 03:30 Uhr
+- Teilrefresh ohne Blinken in zwei Durchgängen (ca. 6 s): nur wenn sich ausschließlich laufende Zahlen geändert haben (PV inkl. Balken, Akkustand/Reichweite/Ladeleistung, Restlaufzeit/Fortschritt der Waschmaschine, Uhrzeit)
+- „Einmal-Blinken“ (das Bild invertiert genau einmal, keine Geisterbilder): bei allen anderen Änderungen und bei Tastendruck
+- Voll-Refresh mit mehrfachem Blinken: nach dem Start, täglich um 03:30 Uhr und statt jedes 10. Einmal-Blinkens (`full_after_flashes`)
 
 ## Build & Flash
 

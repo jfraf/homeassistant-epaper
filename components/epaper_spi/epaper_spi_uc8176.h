@@ -37,6 +37,7 @@ class EPaperUC8176 : public EPaperBase {
                             uint8_t pll);
   // Nächstes Update als Voll-Refresh ausführen.
   void force_full_update() { this->update_count_ = 0; }
+  bool next_update_is_full() const { return this->update_count_ == 0; }
   // Nächstes Teil-Update einmalig als "Einmal-Blinken" ausführen (siehe set_partial_options, flash).
   void request_flash() { this->flash_once_ = true; }
   // Optionen für Teilrefreshes:

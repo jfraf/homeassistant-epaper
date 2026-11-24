@@ -11,15 +11,19 @@
 #     derselbe Check zeichnet auch neu, falls ein Sofort-Trigger einmal verloren gegangen ist
 #
 # Refresh-Arten (Treiber: components/epaper_spi, Modell waveshare-4.2in-v1):
-#   - normal: Teilrefresh ohne Blinken, zwei Durchgänge (der zweite treibt alle Pixel nach), ca. 6 s
-#   - jedes ${flash_every}. Update: "Einmal-Blinken" (Bild invertiert einmal, beseitigt Geisterbilder)
-#   - Voll-Refresh (mehrfaches Blinken) nur nach dem Start und täglich um 03:30 Uhr
+#   - Teilrefresh ohne Blinken (zwei Durchgänge, ca. 6 s): nur wenn sich ausschließlich "laufende" Zahlen
+#     geändert haben (PV inkl. Balken, Akkustand/Reichweite/Ladeleistung, Restlaufzeit/Fortschritt der
+#     Waschmaschine, Uhrzeit "Stand")
+#   - "Einmal-Blinken" (Bild invertiert einmal, keine Geisterbilder): bei allen anderen Änderungen
+#     (Fenster/Türen, Garage, Auto, Ladezustand/-modus, Waschmaschinen-Zustand, Verbindung, Tastendruck)
+#   - Voll-Refresh (mehrfaches Blinken): nach dem Start, täglich um 03:30 Uhr und statt des
+#     ${full_after_flashes}. Einmal-Blinkens in Folge
 
 substitutions:
   name: haus-display
   friendly_name: Haus-Display
   slow_refresh: 5min
-  flash_every: "10"
+  full_after_flashes: "10"
 
 esphome:
   name: ${name}
@@ -72,7 +76,6 @@ time:
         then:
           - lambda: |-
               id(epd).force_full_update();
-              id(n_partial) = 0;
           - script.execute: draw_safe
 
 globals:
@@ -80,9 +83,12 @@ globals:
     type: std::string
   - id: drawn_sig    # Signatur zum Zeitpunkt des letzten Zeichnens
     type: std::string
-  - id: n_partial    # Teilrefreshes seit dem letzten Einmal-Blinken / Voll-Refresh
+  - id: n_flash      # Einmal-Blinken seit dem letzten Voll-Refresh
     type: int
     initial_value: '0'
+  - id: force_flash  # nächstes Update auf jeden Fall mit Einmal-Blinken (Tastendruck)
+    type: bool
+    initial_value: 'false'
 
 # ---------------------------------------------------------------------------
 # Display
@@ -383,10 +389,23 @@ script:
           condition:
             lambda: return id(epd).is_update_idle();
       - lambda: |-
-          if (++id(n_partial) >= ${flash_every}) {
-            id(n_partial) = 0;
+          // Signatur = "laufende Zahlen" # "Zustände". Hat sich seit dem letzten Zeichnen nur der Teil vor
+          // dem '#' geändert, genügt ein Teilrefresh; sonst Einmal-Blinken, jedes
+          // ${full_after_flashes}. Mal stattdessen ein Voll-Refresh.
+          id(compute_sig).execute();
+          auto states = [](const std::string &s) {
+            const auto p = s.find('#');
+            return p == std::string::npos ? std::string() : s.substr(p);
+          };
+          const bool flash = id(force_flash) || states(id(cur_sig)) != states(id(drawn_sig));
+          id(force_flash) = false;
+          if (flash && !id(epd).next_update_is_full() && ++id(n_flash) >= ${full_after_flashes})
+            id(epd).force_full_update();
+          if (id(epd).next_update_is_full())
+            id(n_flash) = 0;
+          else if (flash)
             id(epd).request_flash();
-          }
+          ESP_LOGD("haus", "Refresh: %s", id(epd).next_update_is_full() ? "voll" : flash ? "Einmal-Blinken" : "teil");
       - component.update: epd
 
   # Berechnet eine Signatur aller "langsamen" Werte in der Auflösung, in der sie angezeigt werden
@@ -547,7 +566,7 @@ binary_sensor:
   # Waschmaschine
   - {platform: homeassistant, id: wm_connected, entity_id: binary_sensor.siemens_wm14ur5em2_68a40e98d48e_connected, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
 
-  # Taster (schalten +3V3, daher Pulldown, nicht invertiert). Im Moment: Refresh erzwingen.
+  # Taster (schalten +3V3, daher Pulldown, nicht invertiert). Im Moment: Refresh (Einmal-Blinken) erzwingen.
   - platform: gpio
     id: btn_1
     name: Taste 1
@@ -556,7 +575,9 @@ binary_sensor:
       mode: {input: true, pulldown: true}
       ignore_strapping_warning: true # Taster beim Booten nicht gedrückt halten!
     filters: [delayed_on: 20ms]
-    on_press: [script.execute: draw_safe]
+    on_press:
+      - lambda: id(force_flash) = true;
+      - script.execute: draw_safe
   - platform: gpio
     id: btn_2
     name: Taste 2
@@ -564,7 +585,9 @@ binary_sensor:
       number: GPIO14
       mode: {input: true, pulldown: true}
     filters: [delayed_on: 20ms]
-    on_press: [script.execute: draw_safe]
+    on_press:
+      - lambda: id(force_flash) = true;
+      - script.execute: draw_safe
   - platform: gpio
     id: btn_3
     name: Taste 3
@@ -572,7 +595,9 @@ binary_sensor:
       number: GPIO13
       mode: {input: true, pulldown: true}
     filters: [delayed_on: 20ms]
-    on_press: [script.execute: draw_safe]
+    on_press:
+      - lambda: id(force_flash) = true;
+      - script.execute: draw_safe
   - platform: gpio
     id: btn_4
     name: Taste 4
@@ -581,7 +606,9 @@ binary_sensor:
       mode: {input: true, pulldown: true}
       ignore_strapping_warning: true # Strapping-Pin, im Betrieb unkritisch
     filters: [delayed_on: 20ms]
-    on_press: [script.execute: draw_safe]
+    on_press:
+      - lambda: id(force_flash) = true;
+      - script.execute: draw_safe
 
 # 2 × APA106-F8 / P9823 in Reihe an GPIO27, Versorgung 5 V.
 # Benennung wie die Tasten (von hinten gesehen links = 1): "LED 1" ist die zweite LED der Kette (Index 1),
