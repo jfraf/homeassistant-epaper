@@ -60,6 +60,47 @@ inline std::string fmt1(float v) {
   return b;
 }
 
+// Tagesnummer seit 1970-01-01 für ein Kalenderdatum (H. Hinnant); Wochentag = (n + 4) % 7 mit 0 = Sonntag
+inline long days_from_civil(int Y, int M, int D) {
+  Y -= M <= 2;
+  const int era = (Y >= 0 ? Y : Y - 399) / 400;
+  const unsigned yoe = (unsigned) (Y - era * 400);
+  const unsigned doy = (153 * (M + (M > 2 ? -3 : 9)) + 2) / 5 + D - 1;
+  const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return (long) era * 146097 + (long) doe - 719468;
+}
+
+// Letztes UTF-8-Zeichen entfernen
+inline void utf8_pop(std::string &s) {
+  while (!s.empty() && ((unsigned char) s.back() & 0xC0) == 0x80) s.pop_back();
+  if (!s.empty()) s.pop_back();
+}
+
+// Kurzer Hash (FNV-1a) für die Änderungs-Signatur
+inline uint32_t fnv(const std::string &s) {
+  uint32_t h = 2166136261u;
+  for (unsigned char c : s) { h ^= c; h *= 16777619u; }
+  return h;
+}
+
+// Ein Termin aus sensor.haus_display_termine (Zeile "JJJJ-MM-TT|HH:MM|Titel")
+struct CalEvent {
+  int year{0}, month{0}, day{0};
+  std::string time, title;
+  bool valid{false};
+};
+inline CalEvent parse_event(const std::string &line) {
+  CalEvent e;
+  const auto p1 = line.find('|');
+  const auto p2 = p1 == std::string::npos ? p1 : line.find('|', p1 + 1);
+  if (p2 == std::string::npos) return e;
+  if (sscanf(line.c_str(), "%d-%d-%d", &e.year, &e.month, &e.day) != 3) return e;
+  e.time = line.substr(p1 + 1, p2 - p1 - 1);
+  e.title = line.substr(p2 + 1);
+  e.valid = true;
+  return e;
+}
+
 inline bool ha_missing(const std::string &s) { return s.empty() || s == "unavailable" || s == "unknown"; }
 
 }  // namespace hd

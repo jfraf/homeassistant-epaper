@@ -5,17 +5,22 @@
 #
 # Aktualisierung:
 #   - sofort (2 s entprellt): Fenster/Türen, Garage, Autotüren/-fenster, Ladekabel/-status/-modus,
-#     Waschmaschine (Erreichbarkeit/Zustand/Programm), Verbindung zu HA, Tastendruck
+#     Waschmaschine (Erreichbarkeit/Zustand/Programm), Termine, Verbindung zu HA, Tastendruck
 #   - alle ${slow_refresh}: nur wenn sich ein angezeigter "langsamer" Wert sichtbar geändert hat
 #     (PV-Leistung/-Ertrag/-Prognose, Akkustand, Reichweite, Ladeleistung, Restlaufzeit Waschmaschine);
 #     derselbe Check zeichnet auch neu, falls ein Sofort-Trigger einmal verloren gegangen ist
+#
+# Aufbau (von oben, die Blöcke fließen): Kopfzeile · Haus (Garage/Auto nur wenn offen, Fenster & Türen,
+# Waschmaschine) · Auto · PV · Termine (Rest der Höhe; aus sensor.haus_display_termine, siehe
+# homeassistant/haus_display_termine.yaml). Fehlt die Verbindung zu Home Assistant länger als
+# ${offline_after}, erscheint ein Vollbild-Hinweis.
 #
 # Refresh-Arten (Treiber: components/epaper_spi, Modell waveshare-4.2in-v1):
 #   - Teilrefresh ohne Blinken (zwei Durchgänge, ca. 6 s): nur wenn sich ausschließlich "laufende" Zahlen
 #     geändert haben (PV inkl. Balken, Akkustand/Reichweite/Ladeleistung, Restlaufzeit/Fortschritt der
 #     Waschmaschine, Uhrzeit "Stand")
 #   - "Einmal-Blinken" (Bild invertiert einmal, keine Geisterbilder): bei allen anderen Änderungen
-#     (Fenster/Türen, Garage, Auto, Ladezustand/-modus, Waschmaschinen-Zustand, Verbindung, Tastendruck)
+#     (Fenster/Türen, Garage, Auto, Ladezustand/-modus, Waschmaschinen-Zustand, Termine, Verbindung, Tastendruck)
 #   - Voll-Refresh (mehrfaches Blinken): nach dem Start, täglich um 03:30 Uhr und statt des
 #     ${full_after_flashes}. Einmal-Blinkens in Folge
 
@@ -24,6 +29,7 @@ substitutions:
   friendly_name: Haus-Display
   slow_refresh: 5min
   full_after_flashes: "10"
+  offline_after: 5min
 
 esphome:
   name: ${name}
@@ -34,6 +40,7 @@ esphome:
     then:
       # Teilrefresh in zwei Durchgängen, kein Fenster, kein Nachhalten (im Test Modus "B")
       - lambda: id(epd).set_partial_options(2, false, false, 0);
+      - script.execute: offline_watch
 
 external_components:
   # epaper_spi aus diesem Repo (Kopie von parkghost/esphome-epaper mit Waveshare-4.2"-V1-Modell)
@@ -86,6 +93,15 @@ globals:
   - id: n_flash      # Einmal-Blinken seit dem letzten Voll-Refresh
     type: int
     initial_value: '0'
+  - id: offline_full # Verbindung zu HA fehlt seit mehr als ${offline_after}: Vollbild-Hinweis
+    type: bool
+    initial_value: 'false'
+  - id: offline_since # Zeitpunkt des Verbindungsverlusts (Epoch, 0 = seit dem Start / unbekannt)
+    type: uint32_t
+    initial_value: '0'
+  - id: last_data_ts # letztes Zeichnen mit bestehender Verbindung (Epoch, 0 = nie)
+    type: uint32_t
+    initial_value: '0'
   - id: force_flash  # nächstes Update auf jeden Fall mit Einmal-Blinken (Tastendruck)
     type: bool
     initial_value: 'false'
@@ -114,34 +130,99 @@ display:
     rotation: 270 # Display hängt hochkant
     update_interval: never
     lambda: |-
-      const int W = 300;
+      const int W = 300, X0 = 24, CW = 272;  // Inhalt beginnt rechts neben den Kategorie-Icons
       auto valid = [](sensor::Sensor *s) { return s->has_state() && !std::isnan(s->state); };
       auto txt = [](text_sensor::TextSensor *s) -> std::string { return s->has_state() ? s->state : std::string(); };
       auto text_w = [&](font::Font *f, const char *t) { int x1, y1, w, h; it.get_text_bounds(0, 0, t, f, TextAlign::TOP_LEFT, &x1, &y1, &w, &h); return w; };
+      // Text auf maximale Breite kürzen (mit "…")
+      auto fit = [&](font::Font *f, std::string t, int maxw) -> std::string {
+        if (text_w(f, t.c_str()) <= maxw) return t;
+        while (!t.empty()) {
+          hd::utf8_pop(t);
+          while (!t.empty() && t.back() == ' ') t.pop_back();
+          if (text_w(f, (t + "…").c_str()) <= maxw) break;
+        }
+        return t + "…";
+      };
       auto now = id(ha_time).now();
+      const bool connected = id(ha_status).state;
+      static const char *WD[] = {"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+
+      // Signatur merken, damit der Intervall-Check nur bei Änderungen neu zeichnet
+      id(compute_sig).execute();
+      id(drawn_sig) = id(cur_sig);
+      if (connected && now.is_valid()) id(last_data_ts) = (uint32_t) now.timestamp;
 
       // ======================= Kopfzeile =======================
       it.filled_rectangle(0, 0, W, 28);
-      if (now.is_valid()) {
-        static const char *WD[] = {"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"};
+      if (now.is_valid())
         it.printf(7, 14, id(f_15b), COLOR_OFF, TextAlign::CENTER_LEFT, "%s %02d.%02d.", WD[(now.day_of_week + 6) % 7], now.day_of_month, now.month);
+
+      // ======================= Vollbild: keine Verbindung =======================
+      if (id(offline_full)) {
+        const int M = W / 2;
+        it.print(M, 112, id(f_icon_xl), TextAlign::CENTER, "\U000F0318");  // lan-disconnect
+        it.print(M, 182, id(f_26b), TextAlign::CENTER, "Keine Verbindung");
+        it.print(M, 210, id(f_15), TextAlign::CENTER, "zu Home Assistant");
+        if (id(offline_since) != 0) {
+          auto t = ESPTime::from_epoch_local(id(offline_since));
+          it.printf(M, 246, id(f_20b), TextAlign::CENTER, "seit %02d:%02d Uhr", t.hour, t.minute);
+        } else {
+          it.print(M, 246, id(f_20b), TextAlign::CENTER, "seit dem Start");
+        }
+        it.horizontal_line(4, 290, W - 8);
+        const bool wifi_ok = wifi::global_wifi_component->is_connected();
+        it.print(X0, 310, id(f_icon_p), TextAlign::CENTER_LEFT, wifi_ok ? "\U000F05A9" : "\U000F05AA");
+        if (wifi_ok) {
+          if (valid(id(wifi_rssi)))
+            it.printf(X0 + 30, 302, id(f_13b), TextAlign::CENTER_LEFT, "WLAN verbunden (%.0f dBm)", id(wifi_rssi).state);
+          else
+            it.print(X0 + 30, 302, id(f_13b), TextAlign::CENTER_LEFT, "WLAN verbunden");
+          it.print(X0 + 30, 319, id(f_12), TextAlign::CENTER_LEFT, ("IP " + txt(id(wifi_ip))).c_str());
+        } else {
+          it.print(X0 + 30, 302, id(f_13b), TextAlign::CENTER_LEFT, "WLAN nicht verbunden");
+          it.print(X0 + 30, 319, id(f_12), TextAlign::CENTER_LEFT, "Router oder WLAN prüfen");
+        }
+        it.print(X0, 346, id(f_icon_p), TextAlign::CENTER_LEFT, "\U000F02DA");  // history
+        if (id(last_data_ts) != 0) {
+          auto t = ESPTime::from_epoch_local(id(last_data_ts));
+          it.printf(X0 + 30, 338, id(f_13b), TextAlign::CENTER_LEFT, "Letzte Daten: %02d:%02d Uhr", t.hour, t.minute);
+        } else {
+          it.print(X0 + 30, 338, id(f_13b), TextAlign::CENTER_LEFT, "Noch keine Daten empfangen");
+        }
+        it.print(X0 + 30, 355, id(f_12), TextAlign::CENTER_LEFT, "Die Anzeige kehrt von selbst zurück");
+        return;
       }
-      if (!id(ha_status).state)
+
+      if (!connected)
         it.print(W - 7, 14, id(f_15), COLOR_OFF, TextAlign::CENTER_RIGHT, "keine Verbindung");
       else if (now.is_valid())
         it.strftime(W - 7, 14, id(f_15), COLOR_OFF, TextAlign::CENTER_RIGHT, "Stand %H:%M", now);
 
-      auto section = [&](int y, const char *icon, const char *title, const std::string &right) {
-        it.print(6, y, id(f_icon_s), TextAlign::TOP_LEFT, icon);
-        it.print(23, y + 1, id(f_sec), TextAlign::TOP_LEFT, title);
-        if (!right.empty()) it.print(W - 6, y + 1, id(f_11), TextAlign::TOP_RIGHT, right.c_str());
+      // Kategorie-Icon am linken Rand
+      auto rail = [&](int y, const char *icon) { it.print(2, y + 5, id(f_icon_r), TextAlign::TOP_LEFT, icon); };
+      // Balken: voll bis solid (0..1), schraffiert bis hatched, optional dicker Strich bei tick (innerhalb)
+      auto bar = [&](int by, float solid, float hatched, float tick) {
+        const int bh = 10, inner = CW - 2;
+        auto px = [&](float f) { return (int) (inner * std::min(1.0f, std::max(0.0f, f))); };
+        it.rectangle(X0, by, CW, bh);
+        const int s = px(solid);
+        it.filled_rectangle(X0 + 1, by + 1, s, bh - 2);
+        if (hatched > solid)
+          for (int x = X0 + 1 + s + 1; x < X0 + 1 + px(hatched); x += 3) it.vertical_line(x, by + 1, bh - 2);
+        if (tick >= 0) {
+          const int tx = std::min(X0 + 1 + inner - 2, std::max(X0 + 1, X0 + 1 + px(tick) - 1));
+          it.filled_rectangle(tx, by + 1, 2, bh - 2, solid > tick ? COLOR_OFF : COLOR_ON);
+        }
       };
 
-      // ======================= Waschmaschine sichtbar? =======================
+      // ======================= Haus: Garage, Auto offen, Fenster & Türen, Waschmaschine =======================
+      int y = 32;
+      rail(28, "\U000F06A1");  // home-outline
       const std::string wm_op = hd::last_segment(txt(id(wm_state)));
       const bool wm = id(wm_connected).has_state() && id(wm_connected).state && !hd::ha_missing(txt(id(wm_state)));
+      const int wm_h = wm ? 43 : 0;
 
-      // ======================= Fenster & Türen =======================
       // Zustand: 0 = zu, 1 = offen, 2 = gekippt, -1 = unklar
       auto bs = [](binary_sensor::BinarySensor *s) -> int { return s->has_state() ? (s->state ? 1 : 0) : -1; };
       auto ts = [](text_sensor::TextSensor *s) -> int {
@@ -166,90 +247,91 @@ display:
         {"SZ Mitte",    bs(id(c_mitte)), false},
         {"Bad DG",      bs(id(c_bad_dg)), false},
       };
-      int n_open = 0, n_unk = 0;
-      for (const auto &e : items) { if (e.state > 0) n_open++; if (e.state < 0) n_unk++; }
-      {
-        char r[40] = "";
-        if (n_open && n_unk) snprintf(r, sizeof(r), "%d offen · %d unklar", n_open, n_unk);
-        else if (n_open) snprintf(r, sizeof(r), "%d offen", n_open);
-        else if (n_unk) snprintf(r, sizeof(r), "%d unklar", n_unk);
-        section(33, "\U000F11DB", "FENSTER & TÜREN", r);
-      }
-      const int rows = wm ? 2 : 3;          // Chip-Zeilen (Waschmaschine braucht Platz)
-      const int chips_top = 51;
-      if (n_open + n_unk == 0) {
-        const int cy = chips_top + (rows * 25) / 2 - 2;
-        it.print(6, cy, id(f_icon_l), TextAlign::CENTER_LEFT, "\U000F05E0");  // check-circle
-        it.print(44, cy, id(f_20b), TextAlign::CENTER_LEFT, "Alles geschlossen");
-      } else {
-        const int max = rows * 2, total = n_open + n_unk;
-        const int shown = total > max ? max - 1 : total;
-        int k = 0;
-        for (int pass = 0; pass < 2; pass++) {       // erst offene, dann unklare
-          for (const auto &e : items) {
-            if (k >= shown) break;
-            if ((pass == 0 && e.state <= 0) || (pass == 1 && e.state >= 0)) continue;
-            const int x = 4 + (k % 2) * 148, y = chips_top + (k / 2) * 25;
-            Color fg = COLOR_ON;
-            if (e.state > 0) { it.filled_rectangle(x, y, 144, 22); fg = COLOR_OFF; }
-            else it.rectangle(x, y, 144, 22);
-            const char *icon = e.state < 0 ? "\U000F0625" : (e.door ? "\U000F081C" : "\U000F11DC");
-            it.print(x + 4, y + 11, id(f_icon_c), fg, TextAlign::CENTER_LEFT, icon);
-            it.print(x + 23, y + 11, id(f_13), fg, TextAlign::CENTER_LEFT, e.name);
-            const char *suf = e.state < 0 ? "unklar" : (e.state == 2 ? "gekippt" : "");
-            if (*suf) it.print(x + 140, y + 11, id(f_11), fg, TextAlign::CENTER_RIGHT, suf);
-            k++;
-          }
-        }
-        if (total > max) {
-          const int x = 4 + (k % 2) * 148, y = chips_top + (k / 2) * 25;
-          it.rectangle(x, y, 144, 22);
-          it.printf(x + 6, y + 11, id(f_13), TextAlign::CENTER_LEFT, "+%d weitere", total - shown);
-        }
-      }
-      const int rule1 = chips_top + rows * 25 + 2;
-      it.horizontal_line(4, rule1, W - 8);
+      int total = 0;
+      for (const auto &e : items) if (e.state != 0) total++;
 
-      // ======================= Garage | Auto =======================
-      const int gy = rule1 + 4;
-      auto cell = [&](int x, int y, int w, int h, bool inv, const char *icon, const char *label, const std::string &value) {
-        Color fg = COLOR_ON;
-        if (inv) { it.filled_rectangle(x, y, w, h); fg = COLOR_OFF; } else it.rectangle(x, y, w, h);
-        it.print(x + 5, y + h / 2, id(f_icon_m), fg, TextAlign::CENTER_LEFT, icon);
-        it.print(x + 37, y + h / 2 - 1, id(f_11), fg, TextAlign::BOTTOM_LEFT, label);
-        it.print(x + 37, y + h / 2, id(f_15b), fg, TextAlign::TOP_LEFT, value.c_str());
-      };
+      const std::string g = txt(id(garage));
+      const bool g_unk = hd::ha_missing(g);
+      const bool g_show = g != "closed";  // offen, in Bewegung oder unklar
+      std::string issues;
+      int n_issues = 0;
       {
-        const std::string g = txt(id(garage));
-        const bool g_unk = hd::ha_missing(g);
-        const bool g_open = !g_unk && g != "closed";
-        std::string gv = g_unk ? "unklar" : g == "closed" ? "zu" : g == "opening" ? "öffnet" : g == "closing" ? "schließt" : "OFFEN";
-        cell(4, gy, 144, 42, g_open, g_open ? "\U000F12D4" : "\U000F12D3", "Garage", gv);
-
-        std::string issues;
-        int n_issues = 0;
         auto add = [&](binary_sensor::BinarySensor *s, const char *n) {
           if (s->has_state() && s->state) { if (!issues.empty()) issues += ", "; issues += n; n_issues++; }
         };
         add(id(car_doors), "Tür"); add(id(car_windows), "Fenster"); add(id(car_trunk), "Klappe"); add(id(car_hood), "Haube");
-        // 1 Problem: "Fenster offen"; mehrere: Liste in der kleinen Zeile (falls sie passt), groß "2 offen"
-        std::string label = "Auto", value = "alles zu";
-        if (n_issues == 1) value = issues + " offen";
-        else if (n_issues > 1) {
-          value = std::to_string(n_issues) + " offen";
-          if (text_w(id(f_11), issues.c_str()) <= 104) label = issues;
-        }
-        cell(152, gy, 144, 42, n_issues > 0, n_issues ? "\U000F0B6B" : "\U000F010B", label.c_str(), value);
       }
 
-      // ======================= Waschmaschine (nur wenn erreichbar) =======================
+      if (!g_show && n_issues == 0 && total == 0) {
+        it.print(X0, y + 15, id(f_icon_l), TextAlign::CENTER_LEFT, "\U000F05E0");  // check-circle
+        it.print(X0 + 38, y + 15, id(f_20b), TextAlign::CENTER_LEFT, "Alles geschlossen");
+        y += 33;
+      } else {
+        // Kacheln Garage / Auto, nur wenn nicht geschlossen
+        auto cell = [&](int x, int cy, bool inv, const char *icon, const char *label, const std::string &value) {
+          const int w = 134, h = 42;
+          Color fg = COLOR_ON;
+          if (inv) { it.filled_rectangle(x, cy, w, h); fg = COLOR_OFF; } else it.rectangle(x, cy, w, h);
+          it.print(x + 4, cy + h / 2, id(f_icon_m), fg, TextAlign::CENTER_LEFT, icon);
+          it.print(x + 34, cy + h / 2 - 1, id(f_11), fg, TextAlign::BOTTOM_LEFT, label);
+          it.print(x + 34, cy + h / 2, id(f_15b), fg, TextAlign::TOP_LEFT, value.c_str());
+        };
+        int cx = X0;
+        if (g_show) {
+          const std::string gv = g_unk ? "unklar" : g == "opening" ? "öffnet" : g == "closing" ? "schließt" : "OFFEN";
+          cell(cx, y, !g_unk, g_unk ? "\U000F12D3" : "\U000F12D4", "Garage", gv);
+          cx += 138;
+        }
+        if (n_issues > 0) {
+          std::string label = "Auto offen", value = issues;
+          if (text_w(id(f_15b), issues.c_str()) > 96) {
+            value = std::to_string(n_issues) + " offen";
+            label = text_w(id(f_11), issues.c_str()) <= 96 ? issues : std::string("Auto");
+          }
+          cell(cx, y, true, "\U000F0B6B", label.c_str(), value);
+          cx += 138;
+        }
+        if (cx > X0) y += 45;
+
+        // Chips für Fenster/Türen: erst offene, dann unklare
+        if (total > 0) {
+          const int rows_max = std::max(1, (214 - y - wm_h) / 25);  // unten bleiben mindestens 5 Termine
+          const int max = rows_max * 2;
+          const int shown = total > max ? max - 1 : total;
+          int k = 0;
+          for (int pass = 0; pass < 2; pass++) {
+            for (const auto &e : items) {
+              if (k >= shown) break;
+              if ((pass == 0 && e.state <= 0) || (pass == 1 && e.state >= 0)) continue;
+              const int x = X0 + (k % 2) * 138, cy = y + (k / 2) * 25;
+              Color fg = COLOR_ON;
+              if (e.state > 0) { it.filled_rectangle(x, cy, 134, 22); fg = COLOR_OFF; }
+              else it.rectangle(x, cy, 134, 22);
+              const char *icon = e.state < 0 ? "\U000F0625" : (e.door ? "\U000F081C" : "\U000F11DC");
+              it.print(x + 4, cy + 11, id(f_icon_c), fg, TextAlign::CENTER_LEFT, icon);
+              it.print(x + 23, cy + 11, id(f_13), fg, TextAlign::CENTER_LEFT, e.name);
+              const char *suf = e.state < 0 ? "unklar" : (e.state == 2 ? "gekippt" : "");
+              if (*suf) it.print(x + 130, cy + 11, id(f_11), fg, TextAlign::CENTER_RIGHT, suf);
+              k++;
+            }
+          }
+          if (total > max) {
+            const int x = X0 + (k % 2) * 138, cy = y + (k / 2) * 25;
+            it.rectangle(x, cy, 134, 22);
+            it.printf(x + 6, cy + 11, id(f_13), TextAlign::CENTER_LEFT, "+%d weitere", total - shown);
+          }
+          y += ((std::min(total, max) + 1) / 2) * 25;
+        }
+      }
+
+      // Waschmaschine (nur wenn erreichbar)
       if (wm) {
-        const int y = gy + 44, h = 40;
+        const int h = 40;
         const std::string prog = hd::wm_program_name(txt(id(wm_program)));
         const bool alert = wm_op == "Finished" || wm_op == "ActionRequired" || wm_op == "Error";
         Color fg = COLOR_ON;
-        if (alert) { it.filled_rectangle(4, y, 292, h); fg = COLOR_OFF; } else it.rectangle(4, y, 292, h);
-        it.print(9, y + h / 2, id(f_icon_m), fg, TextAlign::CENTER_LEFT, alert ? "\U000F11BC" : "\U000F072A");
+        if (alert) { it.filled_rectangle(X0, y, CW, h); fg = COLOR_OFF; } else it.rectangle(X0, y, CW, h);
+        it.print(X0 + 4, y + h / 2, id(f_icon_m), fg, TextAlign::CENTER_LEFT, alert ? "\U000F11BC" : "\U000F072A");
         std::string line1 = "Waschmaschine", line2, right;
         if (wm_op == "Run") {
           if (valid(id(wm_progress))) { char b[16]; snprintf(b, sizeof(b), " · %.0f %%", id(wm_progress).state); line1 += b; }
@@ -274,103 +356,117 @@ display:
         } else {
           line2 = "bereit";
         }
-        it.print(41, y + h / 2 - 1, id(f_11), fg, TextAlign::BOTTOM_LEFT, line1.c_str());
-        it.print(41, y + h / 2, id(f_15b), fg, TextAlign::TOP_LEFT, line2.c_str());
+        it.print(X0 + 34, y + h / 2 - 1, id(f_11), fg, TextAlign::BOTTOM_LEFT, line1.c_str());
+        it.print(X0 + 34, y + h / 2, id(f_15b), fg, TextAlign::TOP_LEFT, line2.c_str());
         if (!right.empty()) it.print(290, y + h / 2, id(f_16b), fg, TextAlign::CENTER_RIGHT, right.c_str());
+        y += 43;
       }
 
-      // ======================= Auto (Laden) =======================
-      it.horizontal_line(4, 195, W - 8);
+      // ======================= Auto (52 px) =======================
+      it.horizontal_line(4, y, W - 8);
+      rail(y, "\U000F0B6C");  // car-electric
       {
-        section(199, "\U000F0B6C", "AUTO", "");
-        if (valid(id(car_range)))
-          it.printf(134, 247, id(f_11), TextAlign::BASELINE_RIGHT, "%d km", (int) id(car_range).state);
         if (valid(id(car_soc))) {
           char b[8]; snprintf(b, sizeof(b), "%.0f", id(car_soc).state);
-          it.print(6, 247, id(f_big), TextAlign::BASELINE_LEFT, b);
-          it.print(6 + text_w(id(f_big), b) + 3, 247, id(f_20b), TextAlign::BASELINE_LEFT, "%");
-          const int bx = 6, by = 253, bw = 128, bh = 12;
-          it.rectangle(bx, by, bw, bh);
-          const float soc = std::min(100.0f, std::max(0.0f, id(car_soc).state));
-          it.filled_rectangle(bx + 1, by + 1, (int) ((bw - 2) * soc / 100.0f), bh - 2);
-          if (valid(id(car_limit))) {
-            const int tx = bx + (int) (bw * id(car_limit).state / 100.0f);
-            it.filled_rectangle(tx - 1, by - 3, 2, bh + 6);
-            it.printf(6, 268, id(f_10), TextAlign::TOP_LEFT, "Ladelimit %.0f %%", id(car_limit).state);
-          }
+          int x = X0;
+          it.print(x, y + 31, id(f_big), TextAlign::BASELINE_LEFT, b);
+          x += text_w(id(f_big), b) + 3;
+          it.print(x, y + 31, id(f_16b), TextAlign::BASELINE_LEFT, "%");
+          x += text_w(id(f_16b), "%") + 8;
+          if (valid(id(car_range)))
+            it.printf(x, y + 31, id(f_11), TextAlign::BASELINE_LEFT, "%d km", (int) id(car_range).state);
+          const float limit = valid(id(car_limit)) ? id(car_limit).state / 100.0f : -1.0f;
+          // voll = Akkustand, schraffiert = bis zum Ladelimit, dicker Strich = Ladelimit
+          bar(y + 38, id(car_soc).state / 100.0f, limit, limit);
         } else {
-          it.print(6, 247, id(f_big), TextAlign::BASELINE_LEFT, "–");
+          it.print(X0, y + 31, id(f_big), TextAlign::BASELINE_LEFT, "–");
+          bar(y + 38, 0, 0, -1);
         }
         const bool plugged = id(car_plug).has_state() && id(car_plug).state;
         if (!plugged) {
-          it.print(152, 230, id(f_icon_m), TextAlign::CENTER_LEFT, "\U000F1424");
-          it.print(184, 222, id(f_14), TextAlign::CENTER_LEFT, "nicht");
-          it.print(184, 239, id(f_14), TextAlign::CENTER_LEFT, "angesteckt");
+          it.print(160, y + 20, id(f_icon_p), TextAlign::CENTER_LEFT, "\U000F1424");
+          it.print(188, y + 20, id(f_14), TextAlign::CENTER_LEFT, "nicht angesteckt");
         } else {
-          it.print(152, 228, id(f_icon_m), TextAlign::CENTER_LEFT, "\U000F151E");
+          it.print(160, y + 20, id(f_icon_p), TextAlign::CENTER_LEFT, "\U000F151E");
           const std::string mode = txt(id(wb_mode));
-          it.print(184, 228, id(f_15b), TextAlign::CENTER_LEFT, hd::ha_missing(mode) ? "–" : mode.c_str());
+          it.print(188, y + 12, id(f_14b), TextAlign::CENTER_LEFT, hd::ha_missing(mode) ? "–" : fit(id(f_14b), mode, 108).c_str());
           if (txt(id(car_charge_state)) == "charging") {
-            it.print(152, 256, id(f_icon_c), TextAlign::CENTER_LEFT, "\U000F0241");
             std::string p = "lädt " + (valid(id(car_charge_power)) ? hd::fmt1(id(car_charge_power).state) : std::string("?")) + " kW";
-            it.print(170, 256, id(f_14), TextAlign::CENTER_LEFT, p.c_str());
+            it.print(188, y + 28, id(f_12), TextAlign::CENTER_LEFT, p.c_str());
           } else {
-            it.print(152, 252, id(f_14), TextAlign::CENTER_LEFT, "angesteckt,");
-            it.print(152, 268, id(f_14), TextAlign::CENTER_LEFT, "lädt nicht");
+            it.print(188, y + 28, id(f_12), TextAlign::CENTER_LEFT, "lädt nicht");
           }
         }
       }
+      y += 52;
 
-      // ======================= PV =======================
-      it.horizontal_line(4, 284, W - 8);
+      // ======================= PV (52 px) =======================
+      it.horizontal_line(4, y, W - 8);
+      rail(y, "\U000F1A73");  // solar-power-variant
       {
         const bool has_today = valid(id(pv_today));
         const float today = has_today ? id(pv_today).state : 0;
-        section(289, "\U000F1A73", "PV", has_today ? "heute " + hd::fmt1(today) + " kWh" : "");
-
         if (valid(id(pv_power))) {
           const float w = id(pv_power).state;
           std::string num, unit;
           if (w < 1000) { num = std::to_string((int) w); unit = "W"; } else { num = hd::fmt1(w / 1000.0f); unit = "kW"; }
-          it.print(6, 340, id(f_big), TextAlign::BASELINE_LEFT, num.c_str());
-          it.print(6 + text_w(id(f_big), num.c_str()) + 4, 340, id(f_20b), TextAlign::BASELINE_LEFT, unit.c_str());
+          it.print(X0, y + 31, id(f_big), TextAlign::BASELINE_LEFT, num.c_str());
+          it.print(X0 + text_w(id(f_big), num.c_str()) + 4, y + 31, id(f_16b), TextAlign::BASELINE_LEFT, unit.c_str());
         } else {
-          it.print(6, 340, id(f_big), TextAlign::BASELINE_LEFT, "–");
+          it.print(X0, y + 31, id(f_big), TextAlign::BASELINE_LEFT, "–");
         }
-        it.print(6, 345, id(f_12), TextAlign::TOP_LEFT, "aktuell");
-
         const bool has_rest = valid(id(fc_rest_1)) || valid(id(fc_rest_2));
         const float rest = (valid(id(fc_rest_1)) ? id(fc_rest_1).state : 0) + (valid(id(fc_rest_2)) ? id(fc_rest_2).state : 0);
         const bool has_tom = valid(id(fc_tom_1)) || valid(id(fc_tom_2));
         const float tom = (valid(id(fc_tom_1)) ? id(fc_tom_1).state : 0) + (valid(id(fc_tom_2)) ? id(fc_tom_2).state : 0);
         const bool night = has_rest && rest < 0.05f;
-        if (night && has_tom) {
-          it.print(152, 309, id(f_12), TextAlign::TOP_LEFT, "Prognose morgen");
-          it.print(152, 325, id(f_22b), TextAlign::TOP_LEFT, ("ca. " + hd::fmt1(tom) + " kWh").c_str());
-        } else if (has_rest) {
-          it.print(152, 309, id(f_12), TextAlign::TOP_LEFT, "noch erwartet heute");
-          it.print(152, 325, id(f_22b), TextAlign::TOP_LEFT, ("ca. " + hd::fmt1(rest) + " kWh").c_str());
-        }
-
-        // Balken: erzeugt (voll) + Rest-Prognose (schraffiert)
-        const int bx = 6, by = 366, bw = 288, bh = 12;
-        it.rectangle(bx, by, bw, bh);
-        const float total = today + (night ? 0 : rest);
-        const int done = total > 0 ? (int) ((bw - 2) * today / total) : 0;
-        it.filled_rectangle(bx + 1, by + 1, done, bh - 2);
-        if (!night && rest > 0)
-          for (int x = bx + 1 + done + 1; x < bx + bw - 1; x += 3) it.vertical_line(x, by + 1, bh - 2);
         if (has_today)
-          it.print(6, 381, id(f_10), TextAlign::TOP_LEFT, ("erzeugt " + hd::fmt1(today) + " kWh").c_str());
-        if (night)
-          it.print(W - 6, 381, id(f_10), TextAlign::TOP_RIGHT, "Tag beendet");
-        else if (has_rest)
-          it.print(W - 6, 381, id(f_10), TextAlign::TOP_RIGHT, ("Tagesprognose ca. " + hd::fmt1(total) + " kWh").c_str());
+          it.print(160, y + 6, id(f_11), TextAlign::TOP_LEFT, ("heute " + hd::fmt1(today) + " kWh erzeugt").c_str());
+        if (night && has_tom)
+          it.print(160, y + 19, id(f_14b), TextAlign::TOP_LEFT, ("morgen ca. " + hd::fmt1(tom) + " kWh").c_str());
+        else if (has_rest && !night)
+          it.print(160, y + 19, id(f_14b), TextAlign::TOP_LEFT, ("noch ca. " + hd::fmt1(rest) + " kWh").c_str());
+        // voll = erzeugt, schraffiert = heute noch erwartet
+        const float total_kwh = today + (night ? 0 : rest);
+        const float done = total_kwh > 0 ? today / total_kwh : 0;
+        bar(y + 38, done, (!night && rest > 0) ? 1.0f : done, -1);
       }
+      y += 52;
 
-      // Signatur der langsamen Werte merken, damit der Intervall-Check nur bei Änderungen neu zeichnet
-      id(compute_sig).execute();
-      id(drawn_sig) = id(cur_sig);
+      // ======================= Termine (Rest der Höhe) =======================
+      it.horizontal_line(4, y, W - 8);
+      rail(y, "\U000F0E18");  // calendar-month-outline
+      {
+        const std::string cal = txt(id(cal_text));
+        const int rows = (400 - (y + 4)) / 15;
+        const long today_n = now.is_valid() ? hd::days_from_civil(now.year, now.month, now.day_of_month) : 0;
+        int row = 0;
+        size_t pos = 0;
+        while (row < rows && pos < cal.size()) {
+          size_t nl = cal.find('\n', pos);
+          if (nl == std::string::npos) nl = cal.size();
+          const hd::CalEvent e = hd::parse_event(cal.substr(pos, nl - pos));
+          pos = nl + 1;
+          if (!e.valid) continue;
+          const long n = hd::days_from_civil(e.year, e.month, e.day);
+          const long diff = now.is_valid() ? n - today_n : 99;
+          const bool is_today = diff <= 0;  // auch bereits laufende mehrtägige Termine
+          char day[16];
+          if (is_today) snprintf(day, sizeof(day), "Heute");
+          else if (diff == 1) snprintf(day, sizeof(day), "Morgen");
+          else snprintf(day, sizeof(day), "%s %02d.%02d.", WD[((n + 4) % 7 + 7) % 7], e.day, e.month);
+          const int ry = y + 5 + row * 15;
+          it.print(X0, ry, is_today ? id(f_sec) : id(f_12), TextAlign::TOP_LEFT, day);
+          if (!e.time.empty())
+            it.print(X0 + 90, ry, is_today ? id(f_sec) : id(f_12), TextAlign::TOP_RIGHT, e.time.c_str());
+          font::Font *tf = is_today ? id(f_13b) : id(f_13);
+          it.print(X0 + 96, ry, tf, TextAlign::TOP_LEFT, fit(tf, e.title, W - 4 - (X0 + 96)).c_str());
+          row++;
+        }
+        if (row == 0)
+          it.print(X0, y + 6, id(f_13), TextAlign::TOP_LEFT,
+                   hd::ha_missing(cal) && !id(cal_text).has_state() ? "Termine nicht verfügbar" : "Keine Termine in den nächsten Tagen");
+      }
 
 script:
   # Entprellt Zustandsänderungen: mehrere Änderungen kurz hintereinander -> ein Refresh
@@ -408,6 +504,18 @@ script:
           ESP_LOGD("haus", "Refresh: %s", id(epd).next_update_is_full() ? "voll" : flash ? "Einmal-Blinken" : "teil");
       - component.update: epd
 
+  # Fehlt die Verbindung zu Home Assistant länger als ${offline_after}: Vollbild-Hinweis
+  - id: offline_watch
+    mode: restart
+    then:
+      - delay: ${offline_after}
+      - if:
+          condition:
+            lambda: return !id(ha_status).state && !id(offline_full);
+          then:
+            - lambda: id(offline_full) = true;
+            - script.execute: draw_safe
+
   # Berechnet eine Signatur aller "langsamen" Werte in der Auflösung, in der sie angezeigt werden
   - id: compute_sig
     mode: queued
@@ -422,14 +530,17 @@ script:
             const int64_t end = hd::parse_iso_utc(id(wm_remaining).has_state() ? id(wm_remaining).state : std::string());
             if (end > 0) wm_min = (long) std::max<int64_t>(0, (end - (int64_t) now.timestamp) / 60) / 5;
           }
-          char b[200];
-          snprintf(b, sizeof(b), "%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld",
+          const long wm_fin = id(wm_finish_rel).has_state() ? (long) (hd::fnv(id(wm_finish_rel).state) % 100000) : -1;
+          char b[220];
+          snprintf(b, sizeof(b), "%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld|%ld",
                    r(id(pv_power), 100), r(id(pv_today), 0.1f), r(id(fc_rest_1), 0.1f), r(id(fc_rest_2), 0.1f),
                    r(id(fc_tom_1), 0.1f), r(id(fc_tom_2), 0.1f), r(id(car_soc), 1), r(id(car_range), 10),
-                   r(id(car_limit), 1), r(id(car_charge_power), 0.1f), r(id(wm_progress), 5), wm_min,
+                   r(id(car_limit), 1), r(id(car_charge_power), 0.1f), r(id(wm_progress), 5), wm_min, wm_fin,
                    (long) (now.is_valid() ? now.day_of_year : 0));
           // schnelle Zustände (normalerweise per Trigger), hier als Sicherheitsnetz mit drin
           std::string f = id(ha_status).state ? "C" : "D";
+          if (id(offline_full)) f += wifi::global_wifi_component->is_connected() ? "FW" : "Fw";
+          f += std::to_string(id(cal_text).has_state() ? hd::fnv(id(cal_text).state) : 0u);
           for (binary_sensor::BinarySensor *s : std::initializer_list<binary_sensor::BinarySensor *>{
                    id(c_haustuer), id(c_wohnzimmer), id(c_kueche), id(c_wc), id(c_bad_og), id(c_spielzimmer),
                    id(c_korbinian), id(c_tobias), id(c_velux), id(c_mitte), id(c_bad_dg), id(car_doors),
@@ -465,18 +576,20 @@ font:
   - {file: "gfonts://Arimo@400", id: f_13, size: 13, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
   - {file: "gfonts://Arimo@400", id: f_12, size: 12, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
   - {file: "gfonts://Arimo@400", id: f_11, size: 11, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "gfonts://Arimo@400", id: f_10, size: 10, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Arimo@700", id: f_14b, size: 14, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
+  - {file: "gfonts://Arimo@700", id: f_13b, size: 13, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
   - {file: "gfonts://Arimo@700", id: f_16b, size: 16, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
   - {file: "gfonts://Arimo@700", id: f_20b, size: 20, glyphsets: [GF_Latin_Core], ignore_missing_glyphs: true}
-  - {file: "gfonts://Arimo@700", id: f_22b, size: 22, glyphs: "0123456789,. –-ackWh"}
-  - {file: "gfonts://Arimo@700", id: f_big, size: 36, glyphs: "0123456789,–-"}
+  - {file: "gfonts://Arimo@700", id: f_26b, size: 26, glyphs: "Kein Vrbdug"}
+  - {file: "gfonts://Arimo@700", id: f_big, size: 28, glyphs: "0123456789,–-"}
   - file: &mdi "https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf"
-    id: f_icon_s
-    size: 14
+    id: f_icon_r # Kategorie-Icons am linken Rand
+    size: 19
     glyphs:
-      - "\U000F11DB" # window-closed-variant
+      - "\U000F06A1" # home-outline
       - "\U000F0B6C" # car-electric
       - "\U000F1A73" # solar-power-variant
+      - "\U000F0E18" # calendar-month-outline
   - file: *mdi
     id: f_icon_c
     size: 16
@@ -484,30 +597,41 @@ font:
       - "\U000F11DC" # window-open-variant
       - "\U000F081C" # door-open
       - "\U000F0625" # help-circle-outline
-      - "\U000F0241" # flash
+  - file: *mdi
+    id: f_icon_p
+    size: 22
+    glyphs:
+      - "\U000F151E" # ev-plug-type2
+      - "\U000F1424" # power-plug-off-outline
+      - "\U000F05A9" # wifi
+      - "\U000F05AA" # wifi-off
+      - "\U000F02DA" # history
   - file: *mdi
     id: f_icon_m
     size: 26
     glyphs:
       - "\U000F12D3" # garage-variant
       - "\U000F12D4" # garage-open-variant
-      - "\U000F010B" # car
       - "\U000F0B6B" # car-door
       - "\U000F072A" # washing-machine
       - "\U000F11BC" # washing-machine-alert
-      - "\U000F151E" # ev-plug-type2
-      - "\U000F1424" # power-plug-off-outline
   - file: *mdi
     id: f_icon_l
     size: 30
     glyphs:
       - "\U000F05E0" # check-circle
+  - file: *mdi
+    id: f_icon_xl
+    size: 80
+    glyphs:
+      - "\U000F0318" # lan-disconnect
 
 # ---------------------------------------------------------------------------
 # Daten aus Home Assistant
 # ---------------------------------------------------------------------------
 sensor:
   - platform: wifi_signal
+    id: wifi_rssi
     name: WLAN-Signal
     update_interval: 5min
 
@@ -525,6 +649,12 @@ sensor:
   - {platform: homeassistant, id: wm_progress, entity_id: sensor.siemens_wm14ur5em2_68a40e98d48e_bsh_common_option_programprogress, internal: true}
 
 text_sensor:
+  - platform: wifi_info
+    ip_address:
+      id: wifi_ip
+      internal: true
+  # Termine aller Kalender (Template-Sensor in HA, siehe homeassistant/haus_display_termine.yaml)
+  - {platform: homeassistant, id: cal_text, entity_id: sensor.haus_display_termine, attribute: text, internal: true, on_value: {then: [script.execute: refresh]}}
   # Sofort-Refresh
   - {platform: homeassistant, id: s_balkontuer, entity_id: sensor.spielzimmer_sz_fenstergriffsensor_balkontur_fensterzustand, internal: true, on_value: {then: [script.execute: refresh]}}
   - {platform: homeassistant, id: garage, entity_id: cover.garage_garagentor_tor, internal: true, on_value: {then: [script.execute: refresh]}}
@@ -541,6 +671,20 @@ binary_sensor:
     id: ha_status
     name: Status
     on_state:
+      - lambda: |-
+          if (x) {
+            id(offline_full) = false;
+          } else {
+            auto n = id(ha_time).now();
+            id(offline_since) = n.is_valid() ? (uint32_t) n.timestamp : 0;
+          }
+      - if:
+          condition:
+            lambda: return x;
+          then:
+            - script.stop: offline_watch
+          else:
+            - script.execute: offline_watch
       - script.execute: refresh
 
   # Fenster & Türen
