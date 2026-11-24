@@ -32,6 +32,7 @@ E-Paper-Dashboard für Home Assistant auf Basis von ESPHome. Die Hardware stammt
 - `test/epaper-partial.yaml`: Teilrefresh-Test mit diesem `epaper_spi`, Modell per Substitution `model` wählbar; `test/secrets.yaml` ist ein Symlink auf `../secrets.yaml`
 - `mockup/dashboard.html`: HTML-Skizze der Übersichtsseite (Termine, Kategorien als Icons am linken Rand, Vollbild „keine Verbindung“; so in `haus-display.yaml` umgesetzt)
 - `homeassistant/haus_display_termine.yaml`: Template-Sensor für Home Assistant, **nötig für die Termine**, liefert die nächsten Termine aller Kalender (Einbau siehe Kommentar in der Datei)
+- `homeassistant/kalender_aktualisieren.yaml`: Automation für Home Assistant, ruft den ICS-Kalender `calendar.moffler` alle 30 Minuten neu ab
 
 Für das ESPHome-Dashboard muss `haus_display.h` neben der YAML liegen; `epaper_spi` wird aus diesem Repo geladen. Schrift: Arimo (Google Fonts), normal und fett.
 
