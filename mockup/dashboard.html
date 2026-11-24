@@ -66,6 +66,7 @@
   .big { font-weight: 700; line-height: 1; }
   .small { font-size: 12px; }
   .bar { height: 12px; border: 1px solid var(--ink); } /* Positionierung über .abs */
+  .zoomrow { flex-wrap: wrap; }
   .bar .f { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); }
   .bar .tick { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); }
   .bar .rest { position: absolute; top: 0; bottom: 0; }
@@ -75,20 +76,26 @@
 <body>
 <main>
   <section class="controls">
-    <h1>E-Paper-Dashboard: Seite „Übersicht“</h1>
-    <p>Mockup im Maßstab des Displays: 300 × 400 px hochkant, nur Schwarz und Weiß. Wähle ein Szenario, um zu sehen, wie sich die Anzeige verändert. Die Werte im Szenario „Jetzt“ stammen aus deinem Home Assistant (21.11.2026, ca. 18 Uhr). Positionen und Schriftgrößen entsprechen <code>haus-display.yaml</code>.</p>
+    <h1>E-Paper-Dashboard: Seite „Übersicht“ (Entwurf 2 mit Kalender)</h1>
+    <p>Mockup im Maßstab des Displays: 300 × 400 px hochkant, nur Schwarz und Weiß. Neu: Termine im unteren Fünftel, Auto und PV kompakter, Garage und Auto (Türen/Fenster) erscheinen nur noch im Block „Fenster &amp; Türen“, wenn sie nicht geschlossen sind. Alle Werte und Termine sind Beispiele.</p>
     <div class="scen" id="scen"></div>
-    <div class="zoomrow">Zoom
+    <div class="zoomrow" id="layout" style="margin-bottom:10px">Layout
+      <button data-l="fix" aria-pressed="true">A: feste Blöcke</button><button data-l="flow">B: Kalender nutzt freien Platz</button>
+    </div>
+    <div class="zoomrow" id="zoom">Zoom
       <button data-z="1">1×</button><button data-z="2" aria-pressed="true">2×</button><button data-z="3">3×</button>
     </div>
     <div class="src">
+      <strong>Aufteilung (Layout A)</strong><br>
+      0–28 Kopfzeile · 28–190 Fenster &amp; Türen, Garage, Auto offen, Waschmaschine · 191–255 Auto · 256–319 PV · 320–400 Termine (80 px = 1/5)<br><br>
       <strong>Datenquellen</strong><br>
       Fenster/Türen: 12 HmIP-Kontakte, Balkontür mit Griffsensor (gekippt)<br>
       Garage: <code>cover.garage_garagentor_tor</code><br>
       Auto: <code>binary_sensor.skoda_enyaq_turen_offen</code>, <code>…_fenster</code>, <code>…_kofferraum</code>, <code>…_motorhaube</code><br>
       Laden: <code>sensor.skoda_enyaq_batteriestand</code>, <code>…_reichweite</code>, <code>…_ladegrenze_in_prozent</code>, <code>…_ladekabel</code>, <code>…_ladestatus</code>, <code>…_ladeleistung</code>, <code>sensor.openwb_lademodus</code><br>
-      PV: <code>sensor.solaredge_ac_power</code>, <code>sensor.solaredge_pv_dc_ertrag_heute</code>, Forecast.Solar (2 Dachflächen, summiert): <code>sensor.energy_production_today_remaining</code> + <code>_2</code>, <code>…_tomorrow</code> + <code>_2</code><br>
-      Waschmaschine (nur wenn <code>…_connected</code> an): <code>…_operationstate</code>, <code>…_active_program</code>, <code>…_programprogress</code>, <code>…_remainingprogramtime</code>, <code>…_finishinrelative</code>
+      PV: <code>sensor.solaredge_ac_power</code>, <code>sensor.solaredge_pv_dc_ertrag_heute</code>, Forecast.Solar (2 Dachflächen, summiert)<br>
+      Waschmaschine (nur wenn <code>…_connected</code> an): Zustand, Programm, Fortschritt, Restlaufzeit<br>
+      Termine: Kalender aus Home Assistant (welche, ist noch offen), über einen Template-Sensor mit den nächsten Terminen
     </div>
   </section>
 
@@ -96,21 +103,38 @@
 </main>
 
 <script>
+const CLOSED = { doors: false, windows: false, trunk: false, hood: false };
+const CAL = [
+  { day: 'Heute', time: '19:30', title: 'Elternabend Grundschule' },
+  { day: 'Morgen', time: '', title: 'Gelbe Tonne' },
+  { day: 'Morgen', time: '16:15', title: 'Zahnarzt Korbinian' },
+  { day: 'Do 26.11.', time: '08:00', title: 'Schornsteinfeger (zwischen 8 und 10 Uhr)' },
+  { day: 'Fr 27.11.', time: '18:00', title: 'Fußballtraining Tobias' },
+  { day: 'Sa 28.11.', time: '', title: 'Geburtstag Oma' },
+  { day: 'So 29.11.', time: '10:30', title: 'Adventsbrunch' },
+  { day: 'Mo 30.11.', time: '', title: 'Restmüll' },
+  { day: 'Di 01.12.', time: '14:00', title: 'Auto: Reifenwechsel' },
+  { day: 'Mi 02.12.', time: '20:00', title: 'Stammtisch' },
+];
 const SCENARIOS = [
-  { id: 'now', label: 'Jetzt (echte Werte)', note: 'Abends: alles zu, Auto angesteckt, lädt nicht, PV aus, Waschmaschine nicht erreichbar',
-    time: '18:04', date: 'Sa 21.11.',
-    openings: [], garage: 'zu', car: { doors: false, windows: false, trunk: false, hood: false },
-    wm: null,
+  { id: 'now', label: 'Ruhiger Abend', note: 'Alles zu, Auto angesteckt, lädt nicht, PV aus, Waschmaschine nicht erreichbar',
+    time: '18:04', date: 'Di 24.11.',
+    openings: [], garage: 'zu', car: CLOSED, wm: null,
     ev: { soc: 48, range: 200, limit: 80, plugged: true, charging: false, power: 0, mode: 'Nur PV' },
-    pv: { now: 0, today: 6.5, rest: 0, tomorrow: 6.0 } },
+    pv: { now: 0, today: 6.5, rest: 0, tomorrow: 6.0 }, cal: CAL },
   { id: 'day', label: 'Sonniger Tag, Wäsche läuft', note: 'Auto lädt mit PV-Überschuss, Waschmaschine mitten im Programm',
-    time: '12:30', date: 'So 22.11.',
-    openings: [], garage: 'zu', car: { doors: false, windows: false, trunk: false, hood: false },
+    time: '12:30', date: 'Di 24.11.',
+    openings: [], garage: 'zu', car: CLOSED,
     wm: { op: 'Run', program: 'Eco 40-60', progress: 57, remaining: '1:12' },
     ev: { soc: 63, range: 262, limit: 80, plugged: true, charging: true, power: 3.7, mode: 'PV-Überschuss' },
-    pv: { now: 4.2, today: 5.8, rest: 3.6, tomorrow: 7.1 } },
-  { id: 'open', label: 'Einiges offen / unklar, Wäsche fertig', note: 'Fenster offen, Balkontür gekippt, ein Sensor nicht erreichbar, Garage auf, Waschmaschine fertig',
-    time: '15:10', date: 'Mo 23.11.',
+    pv: { now: 4.2, today: 5.8, rest: 3.6, tomorrow: 7.1 }, cal: CAL },
+  { id: 'garage', label: 'Nur Garage offen', note: 'Garage erscheint als Kachel im Block „Fenster & Türen“, sonst alles zu',
+    time: '17:20', date: 'Di 24.11.',
+    openings: [], garage: 'offen', car: CLOSED, wm: null,
+    ev: { soc: 55, range: 228, limit: 80, plugged: false, charging: false, power: 0, mode: 'Nur PV' },
+    pv: { now: 0, today: 2.9, rest: 0, tomorrow: 4.4 }, cal: CAL },
+  { id: 'open', label: 'Einiges offen / unklar, Wäsche fertig', note: 'Fenster offen, Balkontür gekippt, ein Sensor nicht erreichbar, Garage auf, Autofenster offen, Waschmaschine fertig',
+    time: '15:10', date: 'Di 24.11.',
     openings: [
       { name: 'Wohnzimmer', state: 'offen', door: false },
       { name: 'Balkontür', state: 'gekippt', door: true },
@@ -120,8 +144,8 @@ const SCENARIOS = [
     garage: 'offen', car: { doors: false, windows: true, trunk: false, hood: false },
     wm: { op: 'Finished' },
     ev: { soc: 31, range: 128, limit: 80, plugged: false, charging: false, power: 0, mode: 'Nur PV' },
-    pv: { now: 0.8, today: 3.1, rest: 0.4, tomorrow: 2.2 } },
-  { id: 'many', label: 'Viele Fenster offen, Startvorwahl', note: 'Mehr Einträge als Platz: Überlauf „+n weitere“; Waschmaschine wartet auf Start',
+    pv: { now: 0.8, today: 3.1, rest: 0.4, tomorrow: 2.2 }, cal: CAL },
+  { id: 'many', label: 'Viele Fenster offen, Startvorwahl', note: 'Engster Fall: Auto offen + Waschmaschine + 8 Fenster, Überlauf „+n weitere“',
     time: '08:15', date: 'Di 24.11.',
     openings: [
       { name: 'Wohnzimmer', state: 'offen' }, { name: 'Küche', state: 'offen' }, { name: 'Bad OG', state: 'offen' },
@@ -131,136 +155,181 @@ const SCENARIOS = [
     garage: 'zu', car: { doors: true, windows: false, trunk: true, hood: false },
     wm: { op: 'DelayedStart', program: 'Baumwolle', finish: '3:45' },
     ev: { soc: 80, range: 330, limit: 80, plugged: true, charging: false, power: 0, mode: 'Standby' },
-    pv: { now: 1.1, today: 0.4, rest: 5.9, tomorrow: 6.3 } },
-  { id: 'pause', label: 'Waschmaschine pausiert', note: 'Sonst alles in Ordnung, Auto nicht angesteckt',
-    time: '19:40', date: 'Mi 25.11.',
-    openings: [], garage: 'zu', car: { doors: false, windows: false, trunk: false, hood: false },
+    pv: { now: 1.1, today: 0.4, rest: 5.9, tomorrow: 6.3 }, cal: CAL },
+  { id: 'windows', label: 'Lüften, keine Waschmaschine', note: '8 Fenster offen, Garage und Auto zu: alle passen',
+    time: '09:05', date: 'Di 24.11.',
+    openings: [
+      { name: 'Wohnzimmer', state: 'offen' }, { name: 'Küche', state: 'offen' }, { name: 'Bad OG', state: 'offen' },
+      { name: 'Korbinian', state: 'offen' }, { name: 'Tobias', state: 'offen' }, { name: 'SZ Velux', state: 'offen' },
+      { name: 'SZ Mitte', state: 'offen' }, { name: 'Bad DG', state: 'offen' },
+    ],
+    garage: 'zu', car: CLOSED, wm: null,
+    ev: { soc: 80, range: 330, limit: 80, plugged: true, charging: false, power: 0, mode: 'Standby' },
+    pv: { now: 0.3, today: 0.1, rest: 6.2, tomorrow: 6.3 }, cal: CAL.slice(1, 3) },
+  { id: 'nocal', label: 'Keine Termine', note: 'Waschmaschine pausiert, Auto nicht angesteckt, Kalender leer',
+    time: '19:40', date: 'Di 24.11.',
+    openings: [], garage: 'zu', car: CLOSED,
     wm: { op: 'Pause', program: 'Wolle' },
     ev: { soc: 55, range: 228, limit: 80, plugged: false, charging: false, power: 0, mode: 'Nur PV' },
-    pv: { now: 0, today: 2.9, rest: 0, tomorrow: 4.4 } },
+    pv: { now: 0, today: 2.9, rest: 0, tomorrow: 4.4 }, cal: [] },
 ];
 
 const W = 300;
+let layout = 'fix', current = SCENARIOS[0];
 const fmt = v => v.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 // Text/Icon mit ESPHome-ähnlicher Ausrichtung (Arimo: Grundlinie bei ca. 0,85 em bei line-height 1)
-function tx(x, y, content, { size = 12, bold = false, align = 'TL', inv = false, icon = false } = {}) {
+function tx(x, y, content, { size = 12, bold = false, align = 'TL', inv = false, icon = false, maxw = 0 } = {}) {
   const [v, hz] = [align.slice(0, -1), align.slice(-1)];
   let top = y, tr = '';
   if (v === 'C') tr = 'translateY(-50%)';
   else if (v === 'B') top = y - size;
   else if (v === 'Base') top = y - 0.85 * size;
   const pos = hz === 'R' ? `right:${W - x}px` : `left:${x}px`;
-  const style = `top:${top}px; ${pos}; font-size:${size}px; line-height:1; white-space:nowrap; font-weight:${bold ? 700 : 400}; ${inv ? 'color:var(--paper);' : ''} ${tr ? `transform:${tr};` : ''}`;
+  const clip = maxw ? `max-width:${maxw}px; overflow:hidden; text-overflow:ellipsis;` : '';
+  const style = `top:${top}px; ${pos}; font-size:${size}px; line-height:1.15; margin-top:${v === 'C' ? 0 : -0.075 * size}px; white-space:nowrap; font-weight:${bold ? 700 : 400}; ${clip} ${inv ? 'color:var(--paper);' : ''} ${tr ? `transform:${tr};` : ''}`;
   return `<div class="abs" style="${style}">${icon ? `<i class="mdi mdi-${content}"></i>` : content}</div>`;
 }
 const box_ = (x, y, w, h, filled) => `<div class="abs" style="left:${x}px; top:${y}px; width:${w}px; height:${h}px; ${filled ? 'background:var(--ink);' : 'border:1px solid var(--ink);'}"></div>`;
 const hline = y => `<div class="abs" style="left:4px; top:${y}px; width:${W - 8}px; height:1px; background:var(--ink)"></div>`;
 const section = (y, icon, title, right) =>
   tx(6, y, icon, { size: 14, icon: true }) + tx(23, y + 1, title, { size: 12, bold: true }) + (right ? tx(W - 6, y + 1, right, { size: 11, align: 'TR' }) : '');
+const cell = (x, y, w, hh, inv, icon, label, value) =>
+  box_(x, y, w, hh, inv) + tx(x + 5, y + hh / 2, icon, { size: 26, align: 'CL', inv, icon: true })
+  + tx(x + 37, y + hh / 2 - 1, label, { size: 11, align: 'BL', inv }) + tx(x + 37, y + hh / 2, value, { size: 15, bold: true, inv });
 
-function render(s) {
+// ---------- Block oben: Fenster & Türen, Garage, Auto offen, Waschmaschine ----------
+// Layout A: Bereich fest 51..189, Waschmaschine unten verankert. Layout B: alles fließt von oben.
+// Rückgabe: y der nächsten Trennlinie.
+function drawTop(s) {
+  const TOP = 51, BOTTOM = 189, fix = layout === 'fix';
   let h = '';
-
-  // Kopfzeile
-  h += box_(0, 0, W, 28, true);
-  h += tx(7, 14, s.date, { size: 15, bold: true, align: 'CL', inv: true });
-  h += tx(W - 7, 14, `Stand ${s.time}`, { size: 15, align: 'CR', inv: true });
-
-  // Fenster & Türen
   const wm = s.wm;
-  const nOpen = s.openings.filter(o => o.state !== '?').length, nUnk = s.openings.length - nOpen;
-  const right = [nOpen && `${nOpen} offen`, nUnk && `${nUnk} unklar`].filter(Boolean).join(' · ');
-  h += section(33, 'window-closed-variant', 'FENSTER &amp; TÜREN', right);
-  const rows = wm ? 2 : 3, top = 51;
-  if (!s.openings.length) {
-    const cy = top + Math.floor(rows * 25 / 2) - 2;
+  const gOpen = s.garage !== 'zu';
+  const issues = [s.car.doors && 'Tür', s.car.windows && 'Fenster', s.car.trunk && 'Klappe', s.car.hood && 'Haube'].filter(Boolean);
+  const nOpen = s.openings.filter(o => o.state !== '?').length + (gOpen ? 1 : 0) + (issues.length ? 1 : 0);
+  const nUnk = s.openings.filter(o => o.state === '?').length;
+  h += section(33, 'window-closed-variant', 'FENSTER &amp; TÜREN', [nOpen && `${nOpen} offen`, nUnk && `${nUnk} unklar`].filter(Boolean).join(' · '));
+
+  let y = TOP;
+  const wmH = wm ? 43 : 0;
+  if (nOpen + nUnk === 0) {
+    // Alles geschlossen: A mittig im freien Bereich, B kompakte Zeile
+    const cy = fix ? Math.round((TOP + BOTTOM - wmH) / 2) - 1 : TOP + 15;
     h += tx(6, cy, 'check-circle', { size: 30, align: 'CL', icon: true });
     h += tx(44, cy, 'Alles geschlossen', { size: 20, bold: true, align: 'CL' });
+    y = TOP + 33;
   } else {
-    const max = rows * 2, total = s.openings.length, shown = total > max ? max - 1 : total;
-    const ordered = [...s.openings.filter(o => o.state !== '?'), ...s.openings.filter(o => o.state === '?')].slice(0, shown);
-    ordered.forEach((o, k) => {
-      const x = 4 + (k % 2) * 148, y = top + Math.floor(k / 2) * 25, unk = o.state === '?';
-      h += box_(x, y, 144, 22, !unk);
-      h += tx(x + 4, y + 11, unk ? 'help-circle-outline' : o.door ? 'door-open' : 'window-open-variant', { size: 16, align: 'CL', inv: !unk, icon: true });
-      h += tx(x + 23, y + 11, o.name, { size: 13, align: 'CL', inv: !unk });
-      const suf = unk ? 'unklar' : o.state === 'gekippt' ? 'gekippt' : '';
-      if (suf) h += tx(x + 140, y + 11, suf, { size: 11, align: 'CR', inv: !unk });
-    });
-    if (total > max) {
-      const k = shown, x = 4 + (k % 2) * 148, y = top + Math.floor(k / 2) * 25;
-      h += box_(x, y, 144, 22, false) + tx(x + 6, y + 11, `+${total - shown} weitere`, { size: 13, align: 'CL' });
+    // Kacheln Garage / Auto (Höhe wie bisher), nur wenn nicht geschlossen
+    let cx = 4;
+    if (gOpen) { h += cell(cx, y, 144, 42, true, 'garage-open-variant', 'Garage', 'OFFEN'); cx += 148; }
+    if (issues.length) {
+      let label = 'Auto', value = `${issues[0]} offen`;
+      if (issues.length > 1) { value = `${issues.length} offen`; if (issues.join(', ').length <= 18) label = issues.join(', '); }
+      h += cell(cx, y, 144, 42, true, 'car-door', label, value); cx += 148;
+    }
+    if (cx > 4) y += 45;
+    // Chips für Fenster/Türen
+    const total = s.openings.length;
+    if (total) {
+      const rowsMax = Math.max(1, Math.floor((BOTTOM - y - wmH) / 25));
+      const max = rowsMax * 2, shown = total > max ? max - 1 : total;
+      const ordered = [...s.openings.filter(o => o.state !== '?'), ...s.openings.filter(o => o.state === '?')].slice(0, shown);
+      ordered.forEach((o, k) => {
+        const x = 4 + (k % 2) * 148, yy = y + Math.floor(k / 2) * 25, unk = o.state === '?';
+        h += box_(x, yy, 144, 22, !unk);
+        h += tx(x + 4, yy + 11, unk ? 'help-circle-outline' : o.door ? 'door-open' : 'window-open-variant', { size: 16, align: 'CL', inv: !unk, icon: true });
+        h += tx(x + 23, yy + 11, o.name, { size: 13, align: 'CL', inv: !unk });
+        const suf = unk ? 'unklar' : o.state === 'gekippt' ? 'gekippt' : '';
+        if (suf) h += tx(x + 140, yy + 11, suf, { size: 11, align: 'CR', inv: !unk });
+      });
+      if (total > max) {
+        const k = shown, x = 4 + (k % 2) * 148, yy = y + Math.floor(k / 2) * 25;
+        h += box_(x, yy, 144, 22, false) + tx(x + 6, yy + 11, `+${total - shown} weitere`, { size: 13, align: 'CL' });
+      }
+      y += Math.ceil(Math.min(total, max) / 2) * 25;
     }
   }
-  const rule1 = top + rows * 25 + 2;
-  h += hline(rule1);
-
-  // Garage | Auto
-  const gy = rule1 + 4;
-  const cell = (x, y, w, hh, inv, icon, label, value) =>
-    box_(x, y, w, hh, inv) + tx(x + 5, y + hh / 2, icon, { size: 26, align: 'CL', inv, icon: true })
-    + tx(x + 37, y + hh / 2 - 1, label, { size: 11, align: 'BL', inv }) + tx(x + 37, y + hh / 2, value, { size: 15, bold: true, inv });
-  const gOpen = s.garage !== 'zu';
-  h += cell(4, gy, 144, 42, gOpen, gOpen ? 'garage-open-variant' : 'garage-variant', 'Garage', gOpen ? 'OFFEN' : 'zu');
-  const issues = [s.car.doors && 'Tür', s.car.windows && 'Fenster', s.car.trunk && 'Klappe', s.car.hood && 'Haube'].filter(Boolean);
-  let carLabel = 'Auto', carValue = 'alles zu';
-  if (issues.length === 1) carValue = `${issues[0]} offen`;
-  else if (issues.length > 1) { carValue = `${issues.length} offen`; if (issues.join(', ').length <= 18) carLabel = issues.join(', '); }
-  h += cell(152, gy, 144, 42, issues.length > 0, issues.length ? 'car-door' : 'car', carLabel, carValue);
 
   // Waschmaschine (nur wenn erreichbar)
   if (wm) {
-    const y = gy + 44, hh = 40, alert = ['Finished', 'ActionRequired', 'Error'].includes(wm.op);
+    const wy = fix ? BOTTOM - 40 : y, hh = 40, alert = ['Finished', 'ActionRequired', 'Error'].includes(wm.op);
     let l1 = 'Waschmaschine', l2 = 'bereit', r = '';
     if (wm.op === 'Run') { l1 += ` · ${wm.progress} %`; l2 = wm.program; r = `noch ${wm.remaining} h`; }
     else if (wm.op === 'DelayedStart') { l1 = 'Startvorwahl'; l2 = wm.program; r = `fertig in ${wm.finish} h`; }
     else if (wm.op === 'Pause') { l2 = `${wm.program} (Pause)`; }
     else if (wm.op === 'Finished') { l2 = 'fertig – ausräumen!'; }
-    h += box_(4, y, 292, hh, alert);
-    h += tx(9, y + hh / 2, alert ? 'washing-machine-alert' : 'washing-machine', { size: 26, align: 'CL', inv: alert, icon: true });
-    h += tx(41, y + hh / 2 - 1, l1, { size: 11, align: 'BL', inv: alert });
-    h += tx(41, y + hh / 2, l2, { size: 15, bold: true, inv: alert });
-    if (r) h += tx(290, y + hh / 2, r, { size: 16, bold: true, align: 'CR', inv: alert });
+    h += box_(4, wy, 292, hh, alert);
+    h += tx(9, wy + hh / 2, alert ? 'washing-machine-alert' : 'washing-machine', { size: 26, align: 'CL', inv: alert, icon: true });
+    h += tx(41, wy + hh / 2 - 1, l1, { size: 11, align: 'BL', inv: alert });
+    h += tx(41, wy + hh / 2, l2, { size: 15, bold: true, inv: alert });
+    if (r) h += tx(290, wy + hh / 2, r, { size: 16, bold: true, align: 'CR', inv: alert });
+    y += 43;
   }
+  return [h, fix ? 191 : y];
+}
 
-  // Auto (Laden)
+// ---------- Auto (kompakt, 65 px inkl. Trennlinie) ----------
+function drawAuto(s, y0) {
   const e = s.ev;
-  h += hline(195);
-  h += section(199, 'car-electric', 'AUTO', '');
-  h += tx(134, 247, `${e.range} km`, { size: 11, align: 'BaseR' });
-  h += tx(6, 247, `${e.soc}<span style="font-size:20px; margin-left:3px">%</span>`, { size: 36, bold: true, align: 'BaseL' });
-  h += `<div class="abs bar" style="left:6px; top:253px; width:128px"><div class="f" style="width:${e.soc}%"></div><div class="tick" style="left:${e.limit}%"></div></div>`;
-  h += tx(6, 268, `Ladelimit ${e.limit} %`, { size: 10 });
+  let h = hline(y0);
+  h += section(y0 + 4, 'car-electric', 'AUTO', `${e.range} km · Ladelimit ${e.limit} %`);
+  h += tx(6, y0 + 47, `${e.soc}<span style="font-size:16px; margin-left:3px">%</span>`, { size: 28, bold: true, align: 'BaseL' });
   if (!e.plugged) {
-    h += tx(152, 230, 'power-plug-off-outline', { size: 26, align: 'CL', icon: true });
-    h += tx(184, 222, 'nicht', { size: 14, align: 'CL' }) + tx(184, 239, 'angesteckt', { size: 14, align: 'CL' });
+    h += tx(152, y0 + 34, 'power-plug-off-outline', { size: 22, align: 'CL', icon: true });
+    h += tx(180, y0 + 34, 'nicht angesteckt', { size: 14, align: 'CL' });
   } else {
-    h += tx(152, 228, 'ev-plug-type2', { size: 26, align: 'CL', icon: true });
-    h += tx(184, 228, e.mode, { size: 15, bold: true, align: 'CL' });
-    if (e.charging) {
-      h += tx(152, 256, 'flash', { size: 16, align: 'CL', icon: true }) + tx(170, 256, `lädt ${fmt(e.power)} kW`, { size: 14, align: 'CL' });
-    } else {
-      h += tx(152, 252, 'angesteckt,', { size: 14, align: 'CL' }) + tx(152, 268, 'lädt nicht', { size: 14, align: 'CL' });
-    }
+    h += tx(152, y0 + 34, 'ev-plug-type2', { size: 22, align: 'CL', icon: true });
+    h += tx(180, y0 + 26, e.mode, { size: 14, bold: true, align: 'CL' });
+    h += tx(180, y0 + 42, e.charging ? `lädt ${fmt(e.power)} kW` : 'lädt nicht', { size: 12, align: 'CL' });
   }
+  h += `<div class="abs bar" style="left:6px; top:${y0 + 52}px; width:288px; height:8px"><div class="f" style="width:${e.soc}%"></div><div class="tick" style="left:${e.limit}%; top:-3px; bottom:-3px"></div></div>`;
+  return [h, y0 + 65];
+}
 
-  // PV
+// ---------- PV (kompakt, 64 px inkl. Trennlinie) ----------
+function drawPV(s, y0) {
   const p = s.pv, night = p.rest < 0.05;
-  h += hline(284);
-  h += section(289, 'solar-power-variant', 'PV', `heute ${fmt(p.today)} kWh`);
+  let h = hline(y0);
+  h += section(y0 + 4, 'solar-power-variant', 'PV', `heute ${fmt(p.today)} kWh`);
   const [num, unit] = p.now < 1 ? [String(Math.round(p.now * 1000)), 'W'] : [fmt(p.now), 'kW'];
-  h += tx(6, 340, `${num}<span style="font-size:20px; margin-left:4px">${unit}</span>`, { size: 36, bold: true, align: 'BaseL' });
-  h += tx(6, 345, 'aktuell', { size: 12 });
-  h += tx(152, 309, night ? 'Prognose morgen' : 'noch erwartet heute', { size: 12 });
-  h += tx(152, 325, `ca. ${fmt(night ? p.tomorrow : p.rest)} kWh`, { size: 22, bold: true });
+  h += tx(6, y0 + 47, `${num}<span style="font-size:16px; margin-left:4px">${unit}</span>`, { size: 28, bold: true, align: 'BaseL' });
+  h += tx(152, y0 + 21, night ? 'Prognose morgen' : 'noch erwartet heute', { size: 11 });
+  h += tx(152, y0 + 33, `ca. ${fmt(night ? p.tomorrow : p.rest)} kWh`, { size: 16, bold: true });
   const total = p.today + (night ? 0 : p.rest), done = total ? p.today / total * 100 : 0;
-  h += `<div class="abs bar" style="left:6px; top:366px; width:288px"><div class="f" style="width:${done}%"></div>`
+  h += `<div class="abs bar" style="left:6px; top:${y0 + 52}px; width:288px; height:8px"><div class="f" style="width:${done}%"></div>`
      + (night ? '' : `<div class="rest" style="left:${done}%; width:${100 - done}%"><svg><defs><pattern id="hatch" width="3" height="10" patternUnits="userSpaceOnUse"><rect width="1" height="10" fill="#000"/></pattern></defs><rect width="100%" height="100%" fill="url(#hatch)"/></svg></div>`)
      + `</div>`;
-  h += tx(6, 381, `erzeugt ${fmt(p.today)} kWh`, { size: 10 });
-  h += tx(W - 6, 381, night ? 'Tag beendet' : `Tagesprognose ca. ${fmt(total)} kWh`, { size: 10, align: 'TR' });
+  return [h, y0 + 64];
+}
 
+// ---------- Termine (ab y0 bis zum unteren Rand; Layout A: 80 px = 4 Zeilen) ----------
+function drawCal(s, y0) {
+  let h = hline(y0);
+  const rows = Math.floor((400 - (y0 + 20)) / 15);
+  const more = s.cal.length - rows;
+  h += section(y0 + 4, 'calendar-month-outline', 'TERMINE', more > 0 ? `+${more} weitere` : '');
+  if (!s.cal.length) return h + tx(6, y0 + 24, 'Keine Termine in den nächsten Tagen', { size: 13 });
+  s.cal.slice(0, rows).forEach((ev, i) => {
+    const y = y0 + 21 + i * 15, today = ev.day === 'Heute';
+    h += tx(6, y, ev.day, { size: 12, bold: today });
+    h += tx(98, y, ev.time, { size: 12, align: 'TR', bold: today });
+    h += tx(104, y, ev.title, { size: 13, bold: today, maxw: 190 });
+  });
+  return h;
+}
+
+function render(s) {
+  current = s;
+  let h = '', part, y;
+  // Kopfzeile
+  h += box_(0, 0, W, 28, true);
+  h += tx(7, 14, s.date, { size: 15, bold: true, align: 'CL', inv: true });
+  h += tx(W - 7, 14, `Stand ${s.time}`, { size: 15, align: 'CR', inv: true });
+  [part, y] = drawTop(s); h += part;
+  [part, y] = drawAuto(s, y); h += part;
+  [part, y] = drawPV(s, y); h += part;
+  h += drawCal(s, y);
   document.getElementById('epd').innerHTML = h;
 }
 
@@ -275,11 +344,17 @@ SCENARIOS.forEach((s, i) => {
 });
 render(SCENARIOS[0]);
 
+// Layout-Variante
+document.querySelectorAll('#layout button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#layout button').forEach(x => x.setAttribute('aria-pressed', x === b));
+  layout = b.dataset.l; render(current);
+});
+
 // Zoom
 const epd = document.getElementById('epd');
 function setZoom(z) { epd.style.setProperty('--z', z); }
-document.querySelectorAll('.zoomrow button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('.zoomrow button').forEach(x => x.setAttribute('aria-pressed', x === b));
+document.querySelectorAll('#zoom button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#zoom button').forEach(x => x.setAttribute('aria-pressed', x === b));
   setZoom(+b.dataset.z);
 });
 setZoom(2);
