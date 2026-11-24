@@ -375,7 +375,8 @@ display:
 
       // ======================= Auto (52 px) =======================
       it.horizontal_line(4, y, W - 8);
-      rail(y, "\U000F0B6C");  // car-electric
+      rail(y - 1, "\U000F07AB");   // car-side
+      rail(y + 21, "\U000F06A5");  // power-plug (Stifte nach oben), darunter
       {
         if (valid(id(car_soc))) {
           char b[8]; snprintf(b, sizeof(b), "%.0f", id(car_soc).state);
@@ -635,7 +636,8 @@ font:
     size: 19
     glyphs:
       - "\U000F06A1" # home-outline
-      - "\U000F0B6C" # car-electric
+      - "\U000F07AB" # car-side
+      - "\U000F06A5" # power-plug
       - "\U000F1A73" # solar-power-variant
       - "\U000F0E18" # calendar-month-outline
   - file: *mdi

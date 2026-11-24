@@ -280,7 +280,7 @@ function drawTop(s, y0) {
 // ---------- Auto (52 px inkl. Trennlinie) ----------
 function drawAuto(s, y0) {
   const e = s.ev;
-  let h = hline(y0) + rail(y0, 'car-electric');
+  let h = hline(y0) + rail(y0 - 1, 'car-side') + rail(y0 + 21, 'power-plug');
   h += tx(X0, y0 + 31, `${e.soc}<span style="font-size:16px; margin-left:3px">%</span><span style="font-size:11px; font-weight:400; margin-left:8px">${e.range} km</span>`, { size: 28, bold: true, align: 'BaseL' });
   if (!e.plugged) {
     h += tx(160, y0 + 20, 'power-plug-off-outline', { size: 22, align: 'CL', icon: true });
