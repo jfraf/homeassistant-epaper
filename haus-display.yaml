@@ -267,9 +267,10 @@ display:
         it.print(X0 + 38, y + 15, id(f_20b), TextAlign::CENTER_LEFT, "Alles geschlossen");
         y += 33;
       } else {
-        // Kacheln Garage / Auto, nur wenn nicht geschlossen
+        // Kacheln Garage / Auto, nur wenn nicht geschlossen. Raster: 2 Spalten, Zeilen à 25 px; eine Kachel
+        // belegt zwei Zeilen einer Spalte, die Chips füllen die freien Plätze (auch neben einer einzelnen Kachel).
         auto cell = [&](int x, int cy, bool inv, const char *icon, const char *label, const std::string &value) {
-          const int w = 134, h = 42;
+          const int w = 134, h = 47;
           Color fg = COLOR_ON;
           if (inv) { it.filled_rectangle(x, cy, w, h); fg = COLOR_OFF; } else it.rectangle(x, cy, w, h);
           it.print(x + 4, cy + h / 2, id(f_icon_m), fg, TextAlign::CENTER_LEFT, icon);
@@ -291,37 +292,43 @@ display:
           cell(cx, y, true, "\U000F0B6B", label.c_str(), value);
           cx += 138;
         }
-        if (cx > X0) y += 45;
-
+        const int nbig = (cx - X0) / 138;
+        // Platz k (0, 1, ...) -> Position im Raster
+        auto slot = [&](int k, int &x, int &cy) {
+          int col, row;
+          if (nbig == 1 && k < 2) { col = 1; row = k; }
+          else { const int kk = k - (nbig == 1 ? 2 : 0); col = kk % 2; row = (nbig ? 2 : 0) + kk / 2; }
+          x = X0 + col * 138; cy = y + row * 25;
+        };
         // Chips für Fenster/Türen: erst offene, dann unklare
-        if (total > 0) {
-          const int rows_max = std::max(1, (214 - y - wm_h) / 25);  // unten bleiben mindestens 5 Termine
-          const int max = rows_max * 2;
-          const int shown = total > max ? max - 1 : total;
-          int k = 0;
-          for (int pass = 0; pass < 2; pass++) {
-            for (const auto &e : items) {
-              if (k >= shown) break;
-              if ((pass == 0 && e.state <= 0) || (pass == 1 && e.state >= 0)) continue;
-              const int x = X0 + (k % 2) * 138, cy = y + (k / 2) * 25;
-              Color fg = COLOR_ON;
-              if (e.state > 0) { it.filled_rectangle(x, cy, 134, 22); fg = COLOR_OFF; }
-              else it.rectangle(x, cy, 134, 22);
-              const char *icon = e.state < 0 ? "\U000F0625" : (e.door ? "\U000F081C" : "\U000F11DC");
-              it.print(x + 4, cy + 11, id(f_icon_c), fg, TextAlign::CENTER_LEFT, icon);
-              it.print(x + 23, cy + 11, id(f_13), fg, TextAlign::CENTER_LEFT, e.name);
-              const char *suf = e.state < 0 ? "unklar" : (e.state == 2 ? "gekippt" : "");
-              if (*suf) it.print(x + 130, cy + 11, id(f_11), fg, TextAlign::CENTER_RIGHT, suf);
-              k++;
-            }
+        const int rows_max = std::max(nbig ? 2 : 1, (214 - y - wm_h) / 25);  // unten bleiben mindestens 5 Termine
+        const int max = rows_max * 2 - nbig * 2;
+        const int shown = total > max ? max - 1 : total;
+        int k = 0;
+        for (int pass = 0; pass < 2; pass++) {
+          for (const auto &e : items) {
+            if (k >= shown) break;
+            if ((pass == 0 && e.state <= 0) || (pass == 1 && e.state >= 0)) continue;
+            int x, cy; slot(k, x, cy);
+            Color fg = COLOR_ON;
+            if (e.state > 0) { it.filled_rectangle(x, cy, 134, 22); fg = COLOR_OFF; }
+            else it.rectangle(x, cy, 134, 22);
+            const char *icon = e.state < 0 ? "\U000F0625" : (e.door ? "\U000F081C" : "\U000F11DC");
+            it.print(x + 4, cy + 11, id(f_icon_c), fg, TextAlign::CENTER_LEFT, icon);
+            it.print(x + 23, cy + 11, id(f_13), fg, TextAlign::CENTER_LEFT, e.name);
+            const char *suf = e.state < 0 ? "unklar" : (e.state == 2 ? "gekippt" : "");
+            if (*suf) it.print(x + 130, cy + 11, id(f_11), fg, TextAlign::CENTER_RIGHT, suf);
+            k++;
           }
-          if (total > max) {
-            const int x = X0 + (k % 2) * 138, cy = y + (k / 2) * 25;
-            it.rectangle(x, cy, 134, 22);
-            it.printf(x + 6, cy + 11, id(f_13), TextAlign::CENTER_LEFT, "+%d weitere", total - shown);
-          }
-          y += ((std::min(total, max) + 1) / 2) * 25;
         }
+        if (total > max && max > 0) {
+          int x, cy; slot(k, x, cy);
+          it.rectangle(x, cy, 134, 22);
+          it.printf(x + 6, cy + 11, id(f_13), TextAlign::CENTER_LEFT, "+%d weitere", total - shown);
+          k++;
+        }
+        const int k_rest = std::max(0, k - (nbig == 1 ? 2 : 0));  // Chips unterhalb der Kacheln
+        y += ((nbig ? 2 : 0) + (k_rest + 1) / 2) * 25;
       }
 
       // Waschmaschine (nur wenn erreichbar)

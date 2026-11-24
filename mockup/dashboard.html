@@ -223,33 +223,39 @@ function drawTop(s, y0) {
   } else {
     // Kacheln Garage / Auto (Höhe wie bisher), nur wenn nicht geschlossen
     let cx = X0;
-    if (gOpen) { h += cell(cx, y, 134, 42, true, 'garage-open-variant', 'Garage', 'OFFEN'); cx += 138; }
+    if (gOpen) { h += cell(cx, y, 134, 47, true, 'garage-open-variant', 'Garage', 'OFFEN'); cx += 138; }
     if (issues.length) {
       const list = issues.join(', ');
       let label = 'Auto offen', value = list;
       if (list.length > 12) { value = `${issues.length} offen`; label = list.length <= 19 ? list : 'Auto'; }
-      h += cell(cx, y, 134, 42, true, 'car-door', label, value); cx += 138;
+      h += cell(cx, y, 134, 47, true, 'car-door', label, value); cx += 138;
     }
-    if (cx > X0) y += 45;
-    // Chips für Fenster/Türen
-    if (total) {
-      const rowsMax = Math.max(1, Math.floor((LIMIT - y - wmH) / 25));
-      const max = rowsMax * 2, shown = total > max ? max - 1 : total;
-      const ordered = [...s.openings.filter(o => o.state !== '?'), ...s.openings.filter(o => o.state === '?')].slice(0, shown);
-      ordered.forEach((o, k) => {
-        const x = X0 + (k % 2) * 138, yy = y + Math.floor(k / 2) * 25, unk = o.state === '?';
-        h += box_(x, yy, 134, 22, !unk);
-        h += tx(x + 4, yy + 11, unk ? 'help-circle-outline' : o.door ? 'door-open' : 'window-open-variant', { size: 16, align: 'CL', inv: !unk, icon: true });
-        h += tx(x + 23, yy + 11, o.name, { size: 13, align: 'CL', inv: !unk });
-        const suf = unk ? 'unklar' : o.state === 'gekippt' ? 'gekippt' : '';
-        if (suf) h += tx(x + 130, yy + 11, suf, { size: 11, align: 'CR', inv: !unk });
-      });
-      if (total > max) {
-        const k = shown, x = X0 + (k % 2) * 138, yy = y + Math.floor(k / 2) * 25;
-        h += box_(x, yy, 134, 22, false) + tx(x + 6, yy + 11, `+${total - shown} weitere`, { size: 13, align: 'CL' });
-      }
-      y += Math.ceil(Math.min(total, max) / 2) * 25;
+    // Raster: 2 Spalten, Zeilen à 25 px; eine Kachel belegt zwei Zeilen einer Spalte,
+    // die Chips füllen die freien Plätze (auch neben einer einzelnen Kachel)
+    const nbig = (cx - X0) / 138;
+    const slot = k => {
+      if (nbig === 1 && k < 2) return [X0 + 138, y + k * 25];
+      const kk = k - (nbig === 1 ? 2 : 0);
+      return [X0 + (kk % 2) * 138, y + ((nbig ? 2 : 0) + Math.floor(kk / 2)) * 25];
+    };
+    const rowsMax = Math.max(nbig ? 2 : 1, Math.floor((LIMIT - y - wmH) / 25));
+    const max = rowsMax * 2 - nbig * 2, shown = total > max ? max - 1 : total;
+    const ordered = [...s.openings.filter(o => o.state !== '?'), ...s.openings.filter(o => o.state === '?')].slice(0, shown);
+    let k = 0;
+    ordered.forEach(o => {
+      const [x, yy] = slot(k++), unk = o.state === '?';
+      h += box_(x, yy, 134, 22, !unk);
+      h += tx(x + 4, yy + 11, unk ? 'help-circle-outline' : o.door ? 'door-open' : 'window-open-variant', { size: 16, align: 'CL', inv: !unk, icon: true });
+      h += tx(x + 23, yy + 11, o.name, { size: 13, align: 'CL', inv: !unk });
+      const suf = unk ? 'unklar' : o.state === 'gekippt' ? 'gekippt' : '';
+      if (suf) h += tx(x + 130, yy + 11, suf, { size: 11, align: 'CR', inv: !unk });
+    });
+    if (total > max && max > 0) {
+      const [x, yy] = slot(k++);
+      h += box_(x, yy, 134, 22, false) + tx(x + 6, yy + 11, `+${total - shown} weitere`, { size: 13, align: 'CL' });
     }
+    const kRest = Math.max(0, k - (nbig === 1 ? 2 : 0));
+    y += ((nbig ? 2 : 0) + Math.ceil(kRest / 2)) * 25;
   }
 
   // Waschmaschine (nur wenn erreichbar)
