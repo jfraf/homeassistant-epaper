@@ -100,7 +100,7 @@
 </main>
 
 <script>
-const CLOSED = { doors: false, windows: false, trunk: false, hood: false };
+const CLOSED = { doors: false, windows: false, trunk: false, hood: false, locked: true };
 const CAL = [
   { day: 'Heute', time: '19:30', title: 'Elternabend Grundschule' },
   { day: 'Morgen', time: '', title: 'Gelbe Tonne' },
@@ -130,7 +130,7 @@ const SCENARIOS = [
     openings: [], garage: 'offen', car: CLOSED, wm: null,
     ev: { soc: 55, range: 228, limit: 80, plugged: false, charging: false, power: 0, mode: 'Nur PV' },
     pv: { now: 0, today: 2.9, rest: 0, tomorrow: 4.4 }, cal: CAL },
-  { id: 'open', label: 'Einiges offen / unklar, Wäsche fertig', note: 'Fenster offen, Balkontür gekippt, ein Sensor nicht erreichbar, Garage auf, Autofenster offen, Waschmaschine fertig',
+  { id: 'open', label: 'Einiges offen / unklar, Wäsche fertig', note: 'Fenster offen, Balkontür gekippt, ein Sensor nicht erreichbar, Garage auf, Autofenster offen (Auto aber verriegelt), Waschmaschine fertig',
     time: '15:10', date: 'Di 24.11.',
     openings: [
       { name: 'Wohnzimmer', state: 'offen', door: false },
@@ -138,7 +138,7 @@ const SCENARIOS = [
       { name: 'Haustür', state: 'offen', door: true },
       { name: 'Korbinian', state: '?', door: false },
     ],
-    garage: 'offen', car: { doors: false, windows: true, trunk: false, hood: false },
+    garage: 'offen', car: { doors: false, windows: true, trunk: false, hood: false, locked: true },
     wm: { op: 'Finished' },
     ev: { soc: 31, range: 128, limit: 80, plugged: false, charging: false, power: 0, mode: 'Nur PV' },
     pv: { now: 0.8, today: 3.1, rest: 0.4, tomorrow: 2.2 }, cal: CAL },
@@ -149,7 +149,7 @@ const SCENARIOS = [
       { name: 'Korbinian', state: 'offen' }, { name: 'Tobias', state: 'offen' }, { name: 'SZ Velux', state: 'offen' },
       { name: 'SZ Mitte', state: 'offen' }, { name: 'Bad DG', state: 'offen' },
     ],
-    garage: 'zu', car: { doors: true, windows: false, trunk: true, hood: false },
+    garage: 'zu', car: { doors: true, windows: false, trunk: true, hood: false, locked: false },
     wm: { op: 'DelayedStart', program: 'Baumwolle', finish: '3:45' },
     ev: { soc: 80, range: 330, limit: 80, plugged: true, charging: false, power: 0, mode: 'Standby' },
     pv: { now: 1.1, today: 0.4, rest: 5.9, tomorrow: 6.3 }, cal: CAL },
@@ -163,9 +163,9 @@ const SCENARIOS = [
     garage: 'zu', car: CLOSED, wm: null,
     ev: { soc: 80, range: 330, limit: 80, plugged: true, charging: false, power: 0, mode: 'Standby' },
     pv: { now: 0.3, today: 0.1, rest: 6.2, tomorrow: 6.3 }, cal: CAL.slice(1, 3) },
-  { id: 'nocal', label: 'Keine Termine', note: 'Waschmaschine pausiert, Auto nicht angesteckt, Kalender leer',
+  { id: 'nocal', label: 'Keine Termine', note: 'Waschmaschine pausiert, Auto zu, aber entriegelt und nicht angesteckt, Kalender leer',
     time: '19:40', date: 'Di 24.11.',
-    openings: [], garage: 'zu', car: CLOSED,
+    openings: [], garage: 'zu', car: { ...CLOSED, locked: false },
     wm: { op: 'Pause', program: 'Wolle' },
     ev: { soc: 55, range: 228, limit: 80, plugged: false, charging: false, power: 0, mode: 'Nur PV' },
     pv: { now: 0, today: 2.9, rest: 0, tomorrow: 4.4 }, cal: [] },
@@ -194,9 +194,9 @@ const box_ = (x, y, w, h, filled) => `<div class="abs" style="left:${x}px; top:$
 const hline = y => `<div class="abs" style="left:4px; top:${y}px; width:${W - 8}px; height:1px; background:var(--ink)"></div>`;
 // Kategorie am linken Rand: nur ein Icon oben im Block
 const rail = (yTop, icon) => tx(2, yTop + 5, icon, { size: 19, icon: true });
-const cell = (x, y, w, hh, inv, icon, label, value) =>
+const cell = (x, y, w, hh, inv, icon, label, value, vsize = 15) =>
   box_(x, y, w, hh, inv) + tx(x + 4, y + hh / 2, icon, { size: 26, align: 'CL', inv, icon: true })
-  + tx(x + 34, y + hh / 2 - 1, label, { size: 11, align: 'BL', inv }) + tx(x + 34, y + hh / 2, value, { size: 15, bold: true, inv });
+  + tx(x + 34, y + hh / 2 - 1, label, { size: 11, align: 'BL', inv }) + tx(x + 34, y + hh / 2, value, { size: vsize, bold: true, inv });
 const HATCH = `<svg><defs><pattern id="hatch" width="3" height="10" patternUnits="userSpaceOnUse"><rect width="1" height="10" fill="#000"/></pattern></defs><rect width="100%" height="100%" fill="url(#hatch)"/></svg>`;
 // Balken: voll bis "solid" %, schraffiert bis "hatched" %, optional dicker Strich bei "tick" % (innerhalb des Balkens)
 function bar(y, solid, hatched, tick) {
@@ -215,8 +215,9 @@ function drawTop(s, y0) {
   const gOpen = s.garage !== 'zu';
   const issues = [s.car.doors && 'Tür', s.car.windows && 'Fenster', s.car.trunk && 'Klappe', s.car.hood && 'Haube'].filter(Boolean);
   const total = s.openings.length;
+  const carShow = issues.length > 0 || s.car.locked === false;
 
-  if (!gOpen && !issues.length && !total) {
+  if (!gOpen && !carShow && !total) {
     h += tx(X0, y + 15, 'check-circle', { size: 30, align: 'CL', icon: true });
     h += tx(X0 + 38, y + 15, 'Alles geschlossen', { size: 20, bold: true, align: 'CL' });
     y += 33;
@@ -224,11 +225,19 @@ function drawTop(s, y0) {
     // Kacheln Garage / Auto (Höhe wie bisher), nur wenn nicht geschlossen
     let cx = X0;
     if (gOpen) { h += cell(cx, y, 134, 47, true, 'garage-open-variant', 'Garage', 'OFFEN'); cx += 138; }
-    if (issues.length) {
-      const list = issues.join(', ');
-      let label = 'Auto offen', value = list;
-      if (list.length > 12) { value = `${issues.length} offen`; label = list.length <= 19 ? list : 'Auto'; }
-      h += cell(cx, y, 134, 47, true, 'car-door', label, value); cx += 138;
+    if (carShow) {
+      if (!issues.length) {
+        // alles zu, aber nicht abgeschlossen: Kachel nur mit Rahmen
+        h += cell(cx, y, 134, 47, false, 'lock-open', 'Auto', 'entriegelt');
+      } else {
+        // offen: in der kleinen Zeile steht zusätzlich, ob das Auto trotzdem verriegelt ist
+        const list = issues.join(', ');
+        const label = s.car.locked === true ? 'Auto · verriegelt' : s.car.locked === false ? 'Auto · entriegelt' : 'Auto offen';
+        let value = list, vsize = 15;
+        if (list.length > 12) { if (list.length <= 15) vsize = 13; else value = `${issues.length} offen`; }
+        h += cell(cx, y, 134, 47, true, 'car-door', label, value, vsize);
+      }
+      cx += 138;
     }
     // Raster: 2 Spalten, Zeilen à 25 px; eine Kachel belegt zwei Zeilen einer Spalte,
     // die Chips füllen die freien Plätze (auch neben einer einzelnen Kachel)

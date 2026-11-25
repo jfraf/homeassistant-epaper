@@ -5,7 +5,7 @@
 #           LED 1 pulsiert rot, solange Fenster, Türen, Garage oder Auto offen sind; LED 2 ist noch frei
 #
 # Aktualisierung:
-#   - sofort (2 s entprellt): Fenster/Türen, Garage, Autotüren/-fenster, Ladekabel/-status/-modus,
+#   - sofort (2 s entprellt): Fenster/Türen, Garage, Autotüren/-fenster/-verriegelung, Ladekabel/-status/-modus,
 #     Waschmaschine (Erreichbarkeit/Zustand/Programm), Termine, Verbindung zu HA, Tastendruck
 #   - alle ${slow_refresh}: nur wenn sich ein angezeigter "langsamer" Wert sichtbar geändert hat
 #     (PV-Leistung/-Ertrag/-Prognose, Akkustand, Reichweite, Ladeleistung, Restlaufzeit Waschmaschine);
@@ -266,20 +266,25 @@ display:
         add(id(car_doors), "Tür"); add(id(car_windows), "Fenster"); add(id(car_trunk), "Klappe"); add(id(car_hood), "Haube");
       }
 
-      if (!g_show && n_issues == 0 && total == 0) {
+      // Verriegelung (device_class lock): 1 = entriegelt, 0 = verriegelt, -1 = unklar
+      const int lock = bs(id(car_locked));
+      const bool car_show = n_issues > 0 || lock == 1;
+
+      if (!g_show && !car_show && total == 0) {
         it.print(X0, y + 15, id(f_icon_l), TextAlign::CENTER_LEFT, "\U000F05E0");  // check-circle
         it.print(X0 + 38, y + 15, id(f_20b), TextAlign::CENTER_LEFT, "Alles geschlossen");
         y += 33;
       } else {
         // Kacheln Garage / Auto, nur wenn nicht geschlossen. Raster: 2 Spalten, Zeilen à 25 px; eine Kachel
         // belegt zwei Zeilen einer Spalte, die Chips füllen die freien Plätze (auch neben einer einzelnen Kachel).
-        auto cell = [&](int x, int cy, bool inv, const char *icon, const char *label, const std::string &value) {
+        auto cell = [&](int x, int cy, bool inv, const char *icon, const char *label, const std::string &value,
+                        font::Font *vf = nullptr) {
           const int w = 134, h = 47;
           Color fg = COLOR_ON;
           if (inv) { it.filled_rectangle(x, cy, w, h); fg = COLOR_OFF; } else it.rectangle(x, cy, w, h);
           it.print(x + 4, cy + h / 2, id(f_icon_m), fg, TextAlign::CENTER_LEFT, icon);
           it.print(x + 34, cy + h / 2 - 1, id(f_11), fg, TextAlign::BOTTOM_LEFT, label);
-          it.print(x + 34, cy + h / 2, id(f_15b), fg, TextAlign::TOP_LEFT, value.c_str());
+          it.print(x + 34, cy + h / 2, vf ? vf : id(f_15b), fg, TextAlign::TOP_LEFT, value.c_str());
         };
         int cx = X0;
         if (g_show) {
@@ -287,13 +292,21 @@ display:
           cell(cx, y, !g_unk, g_unk ? "\U000F12D3" : "\U000F12D4", "Garage", gv);
           cx += 138;
         }
-        if (n_issues > 0) {
-          std::string label = "Auto offen", value = issues;
-          if (text_w(id(f_15b), issues.c_str()) > 96) {
-            value = std::to_string(n_issues) + " offen";
-            label = text_w(id(f_11), issues.c_str()) <= 96 ? issues : std::string("Auto");
+        if (car_show) {
+          if (n_issues == 0) {
+            // alles zu, aber nicht abgeschlossen: Kachel nur mit Rahmen
+            cell(cx, y, false, "\U000F033F", "Auto", "entriegelt");
+          } else {
+            // offen: in der kleinen Zeile steht zusätzlich, ob das Auto trotzdem verriegelt ist
+            const char *label = lock == 0 ? "Auto · verriegelt" : lock == 1 ? "Auto · entriegelt" : "Auto offen";
+            std::string value = issues;
+            font::Font *vf = id(f_15b);
+            if (text_w(vf, issues.c_str()) > 96) {
+              vf = id(f_13b);
+              if (text_w(vf, issues.c_str()) > 96) { vf = id(f_15b); value = std::to_string(n_issues) + " offen"; }
+            }
+            cell(cx, y, true, "\U000F0B6B", label, value, vf);
           }
-          cell(cx, y, true, "\U000F0B6B", label.c_str(), value);
           cx += 138;
         }
         const int nbig = (cx - X0) / 138;
@@ -592,7 +605,7 @@ script:
           for (binary_sensor::BinarySensor *s : std::initializer_list<binary_sensor::BinarySensor *>{
                    id(c_haustuer), id(c_wohnzimmer), id(c_kueche), id(c_wc), id(c_bad_og), id(c_spielzimmer),
                    id(c_korbinian), id(c_tobias), id(c_velux), id(c_mitte), id(c_bad_dg), id(car_doors),
-                   id(car_windows), id(car_trunk), id(car_hood), id(car_plug), id(wm_connected)})
+                   id(car_windows), id(car_trunk), id(car_hood), id(car_locked), id(car_plug), id(wm_connected)})
             f += s->has_state() ? (s->state ? '1' : '0') : '?';
           for (text_sensor::TextSensor *s : std::initializer_list<text_sensor::TextSensor *>{
                    id(s_balkontuer), id(garage), id(car_charge_state), id(wb_mode), id(wm_state), id(wm_program)}) {
@@ -663,6 +676,7 @@ font:
       - "\U000F12D3" # garage-variant
       - "\U000F12D4" # garage-open-variant
       - "\U000F0B6B" # car-door
+      - "\U000F033F" # lock-open
       - "\U000F072A" # washing-machine
       - "\U000F11BC" # washing-machine-alert
   - file: *mdi
@@ -755,6 +769,8 @@ binary_sensor:
   - {platform: homeassistant, id: car_windows, entity_id: binary_sensor.skoda_enyaq_fenster, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
   - {platform: homeassistant, id: car_trunk,   entity_id: binary_sensor.skoda_enyaq_kofferraum, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
   - {platform: homeassistant, id: car_hood,    entity_id: binary_sensor.skoda_enyaq_motorhaube, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
+  # Achtung: Geräteklasse "lock" – an = entriegelt, aus = verriegelt
+  - {platform: homeassistant, id: car_locked, entity_id: binary_sensor.skoda_enyaq_fahrzeug_verriegelt, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
   - {platform: homeassistant, id: car_plug,    entity_id: binary_sensor.skoda_enyaq_ladekabel, internal: true, trigger_on_initial_state: true, on_state: {then: [script.execute: refresh]}}
 
   # Waschmaschine
